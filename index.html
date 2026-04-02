@@ -1,0 +1,3121 @@
+<html lang="zh-CN"><head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>配送单生成工具</title>
+    <!-- Tailwind CSS v3 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome -->
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#3b82f6',
+                        secondary: '#e5e7eb',
+                        accent: '#6b7280',
+                        light: '#f9fafb',
+                        dark: '#1f2937',
+                        success: '#10b981',
+                        warning: '#f59e0b',
+                        danger: '#ef4444'
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif']
+                    }
+                }
+            }
+        }
+    </script>
+        <script>
+            // 切换设备管理模态框
+            function toggleDevicesModal() {
+                const modal = document.getElementById('devicesModal');
+                modal.classList.toggle('hidden');
+            }
+
+            // 测试同步
+            function testSync() {
+                if (syncManager) {
+                    syncManager.testSync();
+                } else {
+                    alert('同步管理器未初始化');
+                }
+            }
+
+            // 页面卸载时清理资源
+            window.addEventListener('beforeunload', function() {
+                if (syncManager) {
+                    syncManager.cleanup();
+                }
+            });
+        </script>
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .invoice-border {
+                border: 1px solid #000;
+            }
+            .invoice-border-t {
+                border-top: 1px solid #000;
+            }
+            .invoice-border-b {
+                border-bottom: 1px solid #000;
+            }
+            .invoice-border-l {
+                border-left: 1px solid #000;
+            }
+            .invoice-border-r {
+                border-right: 1px solid #000;
+            }
+            .form-input {
+                @apply w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent;
+            }
+            .form-label {
+                @apply block text-sm font-medium text-gray-700 mb-1;
+            }
+            .btn {
+                @apply px-4 py-2 rounded-md font-medium focus:outline-none focus:ring-2 focus:ring-offset-2 transition-colors;
+            }
+            .btn-primary {
+                @apply bg-primary text-white hover:bg-blue-700 focus:ring-blue-500;
+            }
+            .btn-secondary {
+                @apply bg-secondary text-dark hover:bg-gray-300 focus:ring-gray-400;
+            }
+            .btn-danger {
+                @apply bg-red-500 text-white hover:bg-red-600 focus:ring-red-500;
+            }
+            .no-spin-buttons::-webkit-outer-spin-button,
+            .no-spin-buttons::-webkit-inner-spin-button {
+                -webkit-appearance: none;
+                margin: 0;
+            }
+            .no-spin-buttons {
+                -moz-appearance: textfield;
+            }
+            .sync-indicator {
+                @apply fixed top-4 right-4 z-50 flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-all duration-300;
+            }
+            .sync-indicator.connected {
+                @apply bg-success text-white;
+            }
+            .sync-indicator.disconnected {
+                @apply bg-warning text-white;
+            }
+            .sync-indicator.syncing {
+                @apply bg-primary text-white animate-pulse;
+            }
+            .device-item {
+                @apply flex items-center justify-between px-3 py-2 hover:bg-gray-100 rounded;
+            }
+            .device-item.active {
+                @apply bg-blue-50 border-l-4 border-primary;
+            }
+        }
+
+        /* 打印样式 - 自定义规格 */
+        @media print {
+            * {
+                box-sizing: border-box;
+            }
+            /* 隐藏所有非打印内容 */
+            body > *:not(#printModal) {
+                display: none !important;
+            }
+            .no-print {
+                display: none !important;
+            }
+            /* 确保打印模态框显示 */
+            #printModal {
+                display: block !important;
+                position: fixed !important;
+                top: 0 !important;
+                left: 0 !important;
+                width: 100% !important;
+                height: 100% !important;
+                background: white !important;
+                z-index: 9999 !important;
+            }
+            #printModal > div {
+                all: unset !important;
+                width: 241mm !important;
+                height: 140mm !important;
+                margin: 0 auto !important;
+                padding: 0 !important;
+            }
+            .invoice-preview {
+                box-shadow: none !important;
+                margin: 0 !important;
+                padding: 10mm !important;
+                width: 241mm !important;
+                height: 140mm !important;
+                page-break-inside: avoid !important;
+                overflow: hidden !important;
+                background: white !important;
+            }
+            body {
+                margin: 0 !important;
+                padding: 0 !important;
+                background: white !important;
+                font-size: 10pt !important;
+                line-height: 1.2 !important;
+            }
+            /* 强制页面规格 */
+            @page {
+                size: 241mm 140mm !important;
+                margin: 0 !important;
+            }
+            /* 调整表格字体大小和行高 */
+            table {
+                font-size: 9pt !important;
+                width: 100% !important;
+            }
+            /* 设置配送单行高为25 */
+            .invoice-preview table tr {
+                height: 25px !important;
+            }
+            /* 防止内容溢出 */
+            div, table, tr, td, th {
+                page-break-inside: avoid !important;
+                page-break-after: avoid !important;
+                page-break-before: avoid !important;
+            }
+            /* 确保表格内容不换行 */
+            th, td {
+                white-space: nowrap !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+            }
+            /* 隐藏滚动条 */
+            ::-webkit-scrollbar {
+                display: none !important;
+            }
+            /* 确保所有元素都在一页内 */
+            html, body {
+                height: 100% !important;
+                overflow: hidden !important;
+            }
+        }
+    </style>
+</head>
+<body class="bg-light min-h-screen">
+    <div class="w-full py-4">
+        <!-- 同步状态指示器 -->
+        <div id="syncIndicator" class="sync-indicator disconnected no-print">
+            <i class="fa fa-wifi"></i>
+            <span id="syncStatus">未连接</span>
+            <span id="connectedDevices" class="hidden">0</span>
+            <button id="toggleDevicesBtn" class="ml-2 text-white hover:text-gray-200">
+                <i class="fa fa-cog"></i>
+            </button>
+        </div>
+
+        <!-- 设备管理弹窗 -->
+        <div id="devicesModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden no-print">
+            <div class="bg-white rounded-lg p-6 max-w-md w-full">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-xl font-bold">设备管理</h3>
+                    <button id="closeDevicesBtn" class="text-gray-500 hover:text-gray-700">
+                        <i class="fa fa-times text-xl"></i>
+                    </button>
+                </div>
+                <div class="mb-4">
+                    <p class="text-sm text-gray-600 mb-2">设备ID: <span id="currentDeviceId" class="font-mono"></span></p>
+                    <p class="text-sm text-gray-600">已连接设备 (<span id="devicesCount">0</span>):</p>
+                    <div id="devicesList" class="mt-2 max-h-60 overflow-y-auto border border-gray-200 rounded">
+                        <!-- 设备列表将在这里动态生成 -->
+                    </div>
+                </div>
+                <div class="flex justify-end gap-2">
+                    <button id="testSyncBtn" class="btn btn-primary">测试同步</button>
+                    <button id="closeDevicesBtn2" class="btn btn-secondary">关闭</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 头部 -->
+        <header class="mb-8 no-print">
+            <h1 class="text-3xl font-bold text-center text-dark">宁德市丛林农业发展有限公司配送单</h1>
+            <p class="text-center text-accent mt-2">填写左侧表单，右侧实时预览配送单</p>
+        </header>
+
+        <!-- 主要内容 -->
+        <div class="flex flex-col lg:flex-row gap-0">
+            <!-- 表单区域 -->
+            <div class="w-full lg:w-1/2 bg-white p-6 rounded-lg shadow-md no-print">
+                <h2 class="text-xl font-semibold mb-4 text-dark border-b pb-2">配送单信息</h2>
+                
+                <form id="invoiceForm">
+                    <!-- 用户名称 -->
+                    <div class="grid grid-cols-1 gap-4 mb-6">
+                        <div>
+                            <label for="companyName" class="form-label">用户名称</label>
+                            <div class="relative">
+                                <input type="text" id="companyName" name="companyName" class="form-input pr-10" placeholder="请输入用户名称或从下拉列表中选择" value="宁德市东侨经济技术开发区何起园蔬菜店">
+                                <button type="button" id="toggleUsersBtn" class="absolute right-2 top-1/2 transform -translate-y-1/2 text-primary hover:text-blue-700">
+                                    <i class="fa fa-chevron-down"></i>
+                                </button>
+                                <div id="usersDropdown" class="absolute left-0 right-0 mt-1 bg-white border border-gray-300 rounded-md shadow-lg z-10 max-h-60 overflow-y-auto hidden">
+                                    <!-- 已保存的用户列表将在这里动态添加 -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 配送日期 -->
+                    <div class="grid grid-cols-1 gap-4 mb-6">
+                        <div>
+                            <label for="invoiceDate" class="form-label">配送日期</label>
+                            <input type="date" id="invoiceDate" name="invoiceDate" class="form-input" value="">
+                        </div>
+                    </div>
+
+                    <!-- 商品列表 -->
+                    <div class="mb-6">
+                        <div class="flex justify-between items-center mb-2">
+                            <h3 class="text-lg font-medium text-dark">商品列表</h3>
+                            <button type="button" id="addItemBtn" class="btn btn-primary text-sm">
+                                <i class="fa fa-plus mr-1"></i> 添加商品
+                            </button>
+                        </div>
+                        
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" style="width: 200px; min-width: 200px;">品名</th>
+                                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">单位</th>
+                                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap" style="width: 80px; min-width: 80px;">数量</th>
+                                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">不含税单价</th>
+                                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">不含税金额</th>
+                                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">税率或征收率</th>
+                                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">税额</th>
+                                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">价税合计</th>
+                                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="itemsTable" class="bg-white divide-y divide-gray-200">
+                                    <!-- 商品行将通过JavaScript动态添加 -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- 总计 -->
+                    <div class="flex justify-end mb-6">
+                        <div class="flex items-center">
+                            <span class="text-lg font-medium mr-2">总计:</span>
+                            <span id="totalAmount" class="text-xl font-bold text-primary">¥0.00</span>
+                        </div>
+                    </div>
+
+                    <!-- 送货人和收货人 -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                        <div>
+                            <label for="shipper" class="form-label">送货人</label>
+                            <input type="text" id="shipper" name="shipper" class="form-input" placeholder="无需填写" value="" readonly="">
+                        </div>
+                        <div>
+                            <label for="receiver" class="form-label">收货人</label>
+                            <input type="text" id="receiver" name="receiver" class="form-input" placeholder="无需填写" value="" readonly="">
+                        </div>
+                    </div>
+
+                    <!-- 操作按钮 -->
+                    <div class="flex justify-end gap-4">
+                        <button type="button" id="resetBtn" class="btn btn-secondary">
+                            <i class="fa fa-refresh mr-1"></i> 重置
+                        </button>
+                        <button type="button" id="saveInvoiceBtn" class="btn bg-green-500 hover:bg-green-600 text-white">
+                            <i class="fa fa-save mr-1"></i> 保存配送单
+                        </button>
+                    </div>
+                    
+                    <!-- 订单链接和分拣按钮 -->
+                    <div class="mt-4 flex justify-between items-center">
+                        <div>
+                            <a href="#" id="sortingLink" class="text-purple-500 hover:underline">
+                                <i class="fa fa-sort-amount-desc mr-1"></i> 分拣系统
+                            </a>
+                        </div>
+                        <div class="flex items-center gap-4">
+                            <button type="button" id="manageProductsBtn" class="text-green-500 hover:underline">
+                                <i class="fa fa-cog mr-1"></i> 管理商品
+                            </button>
+                            <a href="#" id="ordersLink" class="text-blue-500 hover:underline">查看已保存的配送单</a>
+                        </div>
+                    </div>
+                </form>
+            </div>
+
+            <!-- 预览区域 -->
+            <div class="w-full lg:w-1/2">
+                <div class="invoice-preview bg-white p-6 rounded-lg shadow-md border border-gray-200" style="width: 241mm; height: 140mm; margin: 0 auto;">
+                    <!-- 配送单标题 -->
+                    <div class="text-center mb-4">
+                        <h2 class="text-2xl font-bold">宁德市丛林农业发展有限公司</h2>
+                    </div>
+
+                    <!-- 单位信息和日期 -->
+                    <div class="flex justify-between items-center mb-4 text-sm">
+                        <div>
+                            <p><strong>用户名称:</strong> <span id="previewCompanyName">宁德市东侨经济技术开发区何起园蔬菜店</span></p>
+                        </div>
+                        <div>
+                            <p class="whitespace-nowrap"><strong>配送日期:</strong> <span id="previewDate"></span></p>
+                        </div>
+                    </div>
+
+                    <!-- 商品表格 -->
+                    <div class="overflow-x-auto mb-4">
+                        <table class="min-w-full invoice-border text-xs">
+                            <thead>
+                                <tr class="bg-gray-100">
+                                    <th class="px-2 py-1 invoice-border text-left" style="width: 80px; min-width: 80px; font-size: 14px; text-align: center;">品名</th>
+                                    <th class="px-2 py-1 invoice-border text-center whitespace-nowrap" style="font-size: 14px;">单位</th>
+                                    <th class="px-2 py-1 invoice-border text-center whitespace-nowrap" style="font-size: 14px;">数量</th>
+                                    <th class="px-2 py-1 invoice-border text-center whitespace-nowrap" style="font-size: 14px;">不含税单价</th>
+                                    <th class="px-2 py-1 invoice-border text-center whitespace-nowrap" style="font-size: 14px;">不含税金额</th>
+                                    <th class="px-2 py-1 invoice-border text-center whitespace-nowrap" style="font-size: 14px;">税率或征收率</th>
+                                    <th class="px-2 py-1 invoice-border text-center whitespace-nowrap" style="font-size: 14px;">税额</th>
+                                    <th class="px-2 py-1 invoice-border text-right whitespace-nowrap" style="font-size: 14px; text-align: center;">价税合计</th>
+                                </tr>
+                            </thead>
+                            <tbody id="previewItemsTable">
+                                <!-- 商品行将通过JavaScript动态添加 -->
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- 总计 -->
+                    <div class="flex justify-end mb-4">
+                        <p class="text-sm"><strong>总计:</strong><span id="previewTotalAmount">0.00</span></p>
+                    </div>
+
+                    <!-- 送货人和收货人 -->
+                    <div class="grid grid-cols-2 gap-4 text-xs">
+                        <div>
+                            <p><strong style="font-size: 14px;">送货人:</strong> <span id="previewShipper"></span></p>
+                        </div>
+                        <div>
+                            <p><strong style="font-size: 14px;">收货人:</strong> <span id="previewReceiver"></span></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 底部 -->
+        <footer class="mt-12 text-center text-accent text-sm no-print">
+            <p>© 2026 配送单生成工具 | 设计与开发</p>
+        </footer>
+    </div>
+
+    <script>
+        // 预设商品列表（从本地存储加载或使用默认值）
+        let presetProducts = JSON.parse(localStorage.getItem('presetProducts')) || [
+            '大白菜', '芹菜', '上海青', '杭椒', '青尖椒', '青瓜', '茄子', '西红柿', 
+            '莲藕', '包菜', '花菜', '莴笋', '蒜苔', '冬瓜', '苦瓜', '胡萝卜', 
+            '白萝卜', '土豆', '香菇', '菜葱', '洋葱', '长豆角', '清水笋丝', '清水笋片'
+        ];
+        
+        // 保存预设商品到本地存储
+        function savePresetProducts() {
+            localStorage.setItem('presetProducts', JSON.stringify(presetProducts));
+            
+            // 同步到其他设备
+            if (syncManager) {
+                syncManager.sendDataUpdate('products', presetProducts);
+            }
+        }
+
+        // 初始化日期为今天
+        document.addEventListener('DOMContentLoaded', function() {
+            const today = new Date();
+            const formattedDate = today.toISOString().substr(0, 10);
+            document.getElementById('invoiceDate').value = formattedDate;
+            document.getElementById('previewDate').textContent = formatDate(today);
+            
+            // 初始化商品列表
+            addNewItem();
+            
+            // 更新预览
+            updatePreview();
+            
+            // 商品管理按钮事件
+            document.getElementById('manageProductsBtn').addEventListener('click', showProductManagement);
+            
+            // 初始化同步功能
+            initSync();
+            
+            // 设备管理按钮事件
+            document.getElementById('toggleDevicesBtn').addEventListener('click', toggleDevicesModal);
+            document.getElementById('closeDevicesBtn').addEventListener('click', toggleDevicesModal);
+            document.getElementById('closeDevicesBtn2').addEventListener('click', toggleDevicesModal);
+            document.getElementById('testSyncBtn').addEventListener('click', testSync);
+        });
+
+        // 添加新商品行
+        document.getElementById('addItemBtn').addEventListener('click', function() {
+            addNewItem();
+        });
+
+        // 重置表单
+        document.getElementById('resetBtn').addEventListener('click', function() {
+            if (confirm('确定要重置表单吗？这将清空所有输入内容。')) {
+                // 保留单位信息和日期
+                const companyName = document.getElementById('companyName').value;
+
+                const invoiceDate = document.getElementById('invoiceDate').value;
+                
+                // 重置表单
+                document.getElementById('invoiceForm').reset();
+                
+                // 恢复单位信息和日期
+                document.getElementById('companyName').value = companyName;
+
+                document.getElementById('invoiceDate').value = invoiceDate;
+
+
+                
+                // 清空商品列表并添加一行空商品
+                const itemsTable = document.getElementById('itemsTable');
+                itemsTable.innerHTML = '';
+                addNewItem();
+                
+                // 更新预览
+                updatePreview();
+            }
+        });
+
+        // 打印功能已移至已保存配送单列表中
+        
+        // 保存配送单
+        document.getElementById('saveInvoiceBtn').addEventListener('click', saveInvoice);
+        
+        // 查看已保存的配送单
+        document.getElementById('ordersLink').addEventListener('click', function(e) {
+            e.preventDefault();
+            showSavedInvoices();
+        });
+        
+        // 分拣系统链接
+        document.getElementById('sortingLink').addEventListener('click', function(e) {
+            e.preventDefault();
+            showSortingSystem();
+        });
+
+        // 监听表单变化，更新预览
+        document.getElementById('companyName').addEventListener('input', updatePreview);
+        document.getElementById('invoiceDate').addEventListener('change', updatePreview);
+        
+        // 切换用户下拉列表
+        document.getElementById('toggleUsersBtn').addEventListener('click', toggleUsersBtn);
+        
+        // 点击页面其他地方关闭下拉列表
+        document.addEventListener('click', function(e) {
+            const dropdown = document.getElementById('usersDropdown');
+            const toggleBtn = document.getElementById('toggleUsersBtn');
+            const input = document.getElementById('companyName');
+            
+            if (!dropdown.contains(e.target) && !toggleBtn.contains(e.target) && !input.contains(e.target)) {
+                dropdown.classList.add('hidden');
+            }
+            
+            // 关闭所有商品下拉列表
+            document.querySelectorAll('.products-dropdown').forEach(dropdown => {
+                const toggleBtn = dropdown.previousElementSibling;
+                const nameInput = dropdown.closest('div').querySelector('.item-name');
+                
+                if (!dropdown.contains(e.target) && !toggleBtn.contains(e.target) && !nameInput.contains(e.target)) {
+                    dropdown.classList.add('hidden');
+                }
+            });
+        });
+        
+        // 输入时自动保存用户
+        document.getElementById('companyName').addEventListener('blur', function() {
+            const userName = this.value.trim();
+            if (userName) {
+                saveUserName(userName);
+            }
+        });
+        
+        // 加载已保存的用户
+        loadSavedUsers();
+        document.getElementById('shipper').addEventListener('input', updatePreview);
+        document.getElementById('receiver').addEventListener('input', updatePreview);
+
+        // 添加新商品行
+        function addNewItem(name = '', unit = '公斤', quantity = '', taxFreePrice = '') {
+            const itemsTable = document.getElementById('itemsTable');
+            const rowIndex = itemsTable.children.length;
+            
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td class="px-3 py-2 whitespace-nowrap">
+                    <div class="relative">
+                        <input type="text" class="item-name form-input py-1 text-sm pr-8" placeholder="输入商品名称搜索" value="${name}" list="productsList-${rowIndex}">
+                        <datalist id="productsList-${rowIndex}">
+                            ${presetProducts.map(product => `<option value="${product}"></option>`).join('')}
+                        </datalist>
+                        <button type="button" class="toggle-products-btn absolute right-2 top-1/2 transform -translate-y-1/2 text-primary hover:text-blue-700 text-sm">
+                            <i class="fa fa-chevron-down"></i>
+                        </button>
+                        <div class="products-dropdown absolute left-0 right-0 mt-1 bg-white border border-gray-300 rounded-md shadow-lg z-10 max-h-60 overflow-y-auto hidden">
+                            ${presetProducts.map(product => `<div class="px-3 py-2 hover:bg-blue-50 cursor-pointer">${product}</div>`).join('')}
+                        </div>
+                    </div>
+                </td>
+                <td class="px-3 py-2 whitespace-nowrap">
+                    <input type="text" class="item-unit form-input py-1 text-sm bg-gray-100" value="公斤" readonly>
+                </td>
+                <td class="px-3 py-2 whitespace-nowrap">
+                    <input type="number" class="item-quantity form-input py-1 text-sm no-spin-buttons w-full" placeholder="数量" value="${quantity}" min="0" step="0.01" onwheel="this.blur()">
+                </td>
+                <td class="px-3 py-2 whitespace-nowrap">
+                    <input type="number" class="item-tax-free-price form-input py-1 text-sm no-spin-buttons" placeholder="不含税单价" value="${taxFreePrice}" min="0" step="0.01" onwheel="this.blur()">
+                </td>
+                <td class="px-3 py-2 whitespace-nowrap">
+                    <span class="item-tax-free-amount">¥0.00</span>
+                </td>
+                <td class="px-3 py-2 whitespace-nowrap">
+                    <span class="item-tax-rate">3%</span>
+                </td>
+                <td class="px-3 py-2 whitespace-nowrap">
+                    <span class="item-tax-amount">¥0.00</span>
+                </td>
+                <td class="px-3 py-2 whitespace-nowrap">
+                    <span class="item-amount">¥0.00</span>
+                </td>
+                <td class="px-3 py-2 whitespace-nowrap">
+                    <button type="button" class="delete-item-btn text-red-500 hover:text-red-700" ${rowIndex === 0 ? 'disabled' : ''}>
+                        <i class="fa fa-trash"></i>
+                    </button>
+                </td>
+            `;
+            
+            itemsTable.appendChild(row);
+            
+            // 添加事件监听器
+            const nameInput = row.querySelector('.item-name');
+            const unitInput = row.querySelector('.item-unit');
+            const quantityInput = row.querySelector('.item-quantity');
+            const priceInput = row.querySelector('.item-tax-free-price');
+            const deleteBtn = row.querySelector('.delete-item-btn');
+            const toggleBtn = row.querySelector('.toggle-products-btn');
+            const dropdown = row.querySelector('.products-dropdown');
+            
+            // 商品名称输入验证
+            nameInput.addEventListener('input', function() {
+                const value = this.value.trim();
+                // 只允许输入预设商品
+                if (value && !presetProducts.includes(value)) {
+                    // 查找匹配的商品
+                    const matchedProducts = presetProducts.filter(product => 
+                        product.toLowerCase().includes(value.toLowerCase())
+                    );
+                    if (matchedProducts.length === 0) {
+                        this.value = '';
+                        alert('请从预设商品列表中选择');
+                    }
+                }
+                updateItemAmount.call(this);
+            });
+            
+            unitInput.addEventListener('input', updatePreview);
+            quantityInput.addEventListener('input', updateItemAmount);
+            priceInput.addEventListener('input', updateItemAmount);
+            
+            // 切换商品下拉列表
+            toggleBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                dropdown.classList.toggle('hidden');
+            });
+            
+            // 点击下拉列表中的商品
+            dropdown.querySelectorAll('div').forEach(item => {
+                item.addEventListener('click', function() {
+                    nameInput.value = this.textContent;
+                    dropdown.classList.add('hidden');
+                    updateItemAmount.call(nameInput);
+                });
+            });
+            
+            // 输入时过滤下拉列表
+            nameInput.addEventListener('focus', function() {
+                const value = this.value.toLowerCase();
+                dropdown.querySelectorAll('div').forEach(item => {
+                    if (item.textContent.toLowerCase().includes(value)) {
+                        item.style.display = 'block';
+                    } else {
+                        item.style.display = 'none';
+                    }
+                });
+                dropdown.classList.remove('hidden');
+            });
+            
+            deleteBtn.addEventListener('click', function() {
+                if (itemsTable.children.length > 1) {
+                    row.remove();
+                    updatePreview();
+                } else {
+                    alert('至少需要保留一项商品');
+                }
+            });
+            
+            // 初始化金额
+            updateItemAmount.call(quantityInput);
+            
+            // 更新预览
+            updatePreview();
+        }
+
+        // 更新商品金额
+        function updateItemAmount() {
+            const row = this.closest('tr');
+            const quantity = parseFloat(row.querySelector('.item-quantity').value) || 0;
+            const taxFreePrice = parseFloat(row.querySelector('.item-tax-free-price').value) || 0;
+            const taxFreeAmount = Math.round(quantity * taxFreePrice * 100) / 100;
+            const taxRate = 0.03; // 3%税率
+            const taxAmount = Math.round(taxFreeAmount * taxRate * 100) / 100;
+            const amount = Math.round((taxFreeAmount + taxAmount) * 100) / 100;
+            
+            row.querySelector('.item-tax-free-amount').textContent = `${taxFreeAmount.toFixed(2)}`;
+            row.querySelector('.item-tax-amount').textContent = `${taxAmount.toFixed(2)}`;
+            row.querySelector('.item-amount').textContent = `${amount.toFixed(2)}`;
+            
+            // 更新总计
+            updateTotal();
+            
+            // 更新预览
+            updatePreview();
+        }
+
+        // 更新总计
+        function updateTotal() {
+            const itemRows = document.querySelectorAll('#itemsTable tr');
+            let total = 0;
+            const taxRate = 0.03; // 3%税率
+            
+            itemRows.forEach(row => {
+                const quantity = parseFloat(row.querySelector('.item-quantity').value) || 0;
+                const taxFreePrice = parseFloat(row.querySelector('.item-tax-free-price').value) || 0;
+                const taxFreeAmount = Math.round(quantity * taxFreePrice * 100) / 100;
+                const taxAmount = Math.round(taxFreeAmount * taxRate * 100) / 100;
+                total += Math.round((taxFreeAmount + taxAmount) * 100) / 100;
+            });
+            
+            document.getElementById('totalAmount').textContent = `${total.toFixed(2)}`;
+        }
+
+        // 更新预览
+        function updatePreview() {
+            // 更新单位信息
+            document.getElementById('previewCompanyName').textContent = document.getElementById('companyName').value;
+
+            
+            // 更新日期
+            const dateInput = document.getElementById('invoiceDate').value;
+            if (dateInput) {
+                const date = new Date(dateInput);
+                document.getElementById('previewDate').textContent = formatDate(date);
+            } else {
+                document.getElementById('previewDate').textContent = '';
+            }
+            
+            // 更新单号
+
+            
+            // 更新商品列表
+            const previewItemsTable = document.getElementById('previewItemsTable');
+            previewItemsTable.innerHTML = '';
+            
+            const itemRows = document.querySelectorAll('#itemsTable tr');
+            itemRows.forEach(row => {
+                const name = row.querySelector('.item-name').value;
+                const unit = row.querySelector('.item-unit').value;
+                const quantity = row.querySelector('.item-quantity').value;
+                const taxFreePrice = row.querySelector('.item-tax-free-price').value;
+                const taxFreeAmount = Math.round((parseFloat(quantity) || 0) * (parseFloat(taxFreePrice) || 0) * 100) / 100;
+                const taxAmount = Math.round(taxFreeAmount * 0.03 * 100) / 100;
+                const amount = Math.round((taxFreeAmount + taxAmount) * 100) / 100;
+                
+                if (name || unit || quantity || taxFreePrice) {
+                    const previewRow = document.createElement('tr');
+                    previewRow.innerHTML = `
+                        <td class="px-2 py-1 invoice-border">${name || ''}</td>
+                        <td class="px-2 py-1 invoice-border text-center">${unit || ''}</td>
+                        <td class="px-2 py-1 invoice-border text-center">${quantity || ''}</td>
+                        <td class="px-2 py-1 invoice-border text-center">${taxFreePrice || ''}</td>
+                        <td class="px-2 py-1 invoice-border text-center">${taxFreeAmount > 0 ? `${taxFreeAmount.toFixed(2)}` : ''}</td>
+                        <td class="px-2 py-1 invoice-border text-center">3%</td>
+                        <td class="px-2 py-1 invoice-border text-center">${taxAmount > 0 ? `${taxAmount.toFixed(2)}` : ''}</td>
+                        <td class="px-2 py-1 invoice-border text-right">${amount > 0 ? `${amount.toFixed(2)}` : ''}</td>
+                    `;
+                    previewItemsTable.appendChild(previewRow);
+                }
+            });
+            
+            // 更新总计
+            document.getElementById('previewTotalAmount').textContent = document.getElementById('totalAmount').textContent.replace('¥', '');
+            
+            // 送货人和收货人为空
+            document.getElementById('previewShipper').textContent = '';
+            document.getElementById('previewReceiver').textContent = '';
+        }
+
+        // 格式化日期为 YYYY年MM月DD日
+        function formatDate(date) {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return `${year}年${month}月${day}日`;
+        }
+        
+        // 切换用户下拉列表
+        function toggleUsersBtn() {
+            const dropdown = document.getElementById('usersDropdown');
+            dropdown.classList.toggle('hidden');
+            if (!dropdown.classList.contains('hidden')) {
+                renderUsersDropdown();
+            }
+        }
+        
+        // 保存用户名称
+        function saveUserName(userName) {
+            if (!userName) return;
+            
+            // 获取已保存的用户列表
+            let savedUsers = JSON.parse(localStorage.getItem('savedUsers') || '[]');
+            
+            // 检查是否已存在
+            if (!savedUsers.includes(userName)) {
+                // 添加新用户
+                savedUsers.push(userName);
+                localStorage.setItem('savedUsers', JSON.stringify(savedUsers));
+                
+                // 同步到其他设备
+                if (syncManager) {
+                    syncManager.sendDataUpdate('users', savedUsers);
+                }
+            }
+        }
+        
+        // 加载已保存的用户
+        function loadSavedUsers() {
+            // 初始加载时不显示下拉列表，只在点击按钮时显示
+        }
+        
+        // 渲染用户下拉列表
+        function renderUsersDropdown() {
+            const dropdown = document.getElementById('usersDropdown');
+            dropdown.innerHTML = '';
+            
+            const savedUsers = JSON.parse(localStorage.getItem('savedUsers') || '[]');
+            
+            if (savedUsers.length === 0) {
+                const emptyItem = document.createElement('div');
+                emptyItem.className = 'px-4 py-2 text-gray-500 text-sm';
+                emptyItem.textContent = '暂无保存的用户';
+                dropdown.appendChild(emptyItem);
+                return;
+            }
+            
+            savedUsers.forEach(user => {
+                const userItem = document.createElement('div');
+                userItem.className = 'px-4 py-2 hover:bg-gray-100 cursor-pointer flex justify-between items-center';
+                userItem.innerHTML = `
+                    <span>${user}</span>
+                    <button type="button" class="text-gray-400 hover:text-red-500 delete-user" data-user="${user}">
+                        <i class="fa fa-times"></i>
+                    </button>
+                `;
+                
+                // 点击用户项选择用户
+                userItem.addEventListener('click', function(e) {
+                    // 如果点击的是删除按钮，不执行选择操作
+                    if (!e.target.closest('.delete-user')) {
+                        document.getElementById('companyName').value = user;
+                        updatePreview();
+                        dropdown.classList.add('hidden');
+                    }
+                });
+                
+                // 点击删除按钮删除用户
+                userItem.querySelector('.delete-user').addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    deleteUser(user);
+                });
+                
+                dropdown.appendChild(userItem);
+            });
+        }
+        
+        // 删除用户
+        function deleteUser(userToDelete) {
+            if (confirm(`确定要删除用户"${userToDelete}"吗？`)) {
+                let savedUsers = JSON.parse(localStorage.getItem('savedUsers') || '[]');
+                savedUsers = savedUsers.filter(user => user !== userToDelete);
+                localStorage.setItem('savedUsers', JSON.stringify(savedUsers));
+                renderUsersDropdown();
+            }
+        }
+        
+        // 保存配送单
+        function saveInvoice() {
+            const userName = document.getElementById('companyName').value.trim();
+            const date = document.getElementById('invoiceDate').value;
+            
+            if (!userName) {
+                alert('请输入用户名称');
+                return;
+            }
+            
+            if (!date) {
+                alert('请选择配送日期');
+                return;
+            }
+            
+            const items = [];
+            const itemRows = document.querySelectorAll('#itemsTable tr');
+            let hasItems = false;
+            
+            itemRows.forEach(row => {
+                const name = row.querySelector('.item-name').value.trim();
+                const quantity = parseFloat(row.querySelector('.item-quantity').value) || 0;
+                const taxFreePrice = parseFloat(row.querySelector('.item-tax-free-price').value) || 0;
+                
+                if (name && quantity > 0 && taxFreePrice > 0) {
+                    const taxFreeAmount = Math.round(quantity * taxFreePrice * 100) / 100;
+                    const taxAmount = Math.round(taxFreeAmount * 0.03 * 100) / 100;
+                    const amount = Math.round((taxFreeAmount + taxAmount) * 100) / 100;
+                    
+                    items.push({
+                        name,
+                        unit: '公斤',
+                        quantity,
+                        taxFreePrice,
+                        taxFreeAmount,
+                        taxAmount,
+                        amount
+                    });
+                    
+                    hasItems = true;
+                }
+            });
+            
+            if (!hasItems) {
+                alert('请至少添加一个有效的商品');
+                return;
+            }
+            
+            // 获取已保存的配送单
+            let savedInvoices = JSON.parse(localStorage.getItem('savedInvoices') || '[]');
+            
+            // 检查是否正在编辑已有订单
+            const editingInvoiceId = document.getElementById('companyName').getAttribute('data-editing-invoice-id');
+            
+            let invoice;
+            if (editingInvoiceId) {
+                // 编辑已有订单
+                const invoiceIndex = savedInvoices.findIndex(inv => inv.id === editingInvoiceId);
+                
+                if (invoiceIndex !== -1) {
+                    const originalInvoice = savedInvoices[invoiceIndex];
+                    
+                    // 创建新的商品列表，保留原有的分拣数据
+                    const updatedItems = items.map(newItem => {
+                        // 查找原订单中是否有相同名称的商品
+                        const originalItem = originalInvoice.items.find(item => item.name === newItem.name);
+                        
+                        if (originalItem && originalItem.isLocked) {
+                            // 如果原商品已分拣，保留分拣数据
+                            return {
+                                ...newItem,
+                                isLocked: originalItem.isLocked,
+                                sortingQuantity: originalItem.sortingQuantity,
+                                sortedAt: originalItem.sortedAt
+                            };
+                        }
+                        
+                        // 新商品或未分拣的商品，不保留分拣数据
+                        return newItem;
+                    });
+                    
+                    // 更新已有订单，保留原订单的分拣相关字段
+                    invoice = {
+                        ...originalInvoice,
+                        userName,
+                        date,
+                        items: updatedItems,
+                        total: document.getElementById('totalAmount').textContent,
+                        updatedAt: new Date().toISOString()
+                    };
+                    
+                    savedInvoices[invoiceIndex] = invoice;
+                    
+                    // 清除编辑标记
+                    document.getElementById('companyName').removeAttribute('data-editing-invoice-id');
+                    
+                    alert('配送单更新成功！已保留原分拣数据。');
+                } else {
+                    alert('未找到要更新的配送单');
+                    return;
+                }
+            } else {
+                // 创建新配送单
+                invoice = {
+                    id: generateInvoiceId(),
+                    userName,
+                    date,
+                    items,
+                    total: document.getElementById('totalAmount').textContent,
+                    createdAt: new Date().toISOString()
+                };
+                
+                // 添加新配送单
+                savedInvoices.push(invoice);
+                
+                alert('配送单保存成功！');
+            }
+            
+            // 保存到本地存储
+            localStorage.setItem('savedInvoices', JSON.stringify(savedInvoices));
+            
+            // 同步到其他设备
+            if (syncManager) {
+                syncManager.sendDataUpdate('invoices', savedInvoices);
+            }
+            
+            // 重置表单
+            resetForm();
+        }
+        
+        // 生成配送单ID
+        function generateInvoiceId() {
+            const date = new Date();
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            const random = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
+            
+            return `${year}${month}${day}${random}`;
+        }
+        
+        // 重置表单
+        function resetForm() {
+            const companyNameInput = document.getElementById('companyName');
+            const invoiceDateInput = document.getElementById('invoiceDate');
+            
+            // 保存配送日期
+            const invoiceDate = invoiceDateInput.value;
+            
+            companyNameInput.value = '';
+            // 清除编辑标记
+            companyNameInput.removeAttribute('data-editing-invoice-id');
+            
+            // 恢复配送日期
+            invoiceDateInput.value = invoiceDate;
+            
+            // 清空商品列表并添加一行空商品
+            const itemsTable = document.getElementById('itemsTable');
+            itemsTable.innerHTML = '';
+            addNewItem();
+            
+            // 更新预览
+            updatePreview();
+        }
+        
+        // 显示已保存的配送单
+        function showSavedInvoices() {
+            // 获取已保存的配送单
+            const savedInvoices = JSON.parse(localStorage.getItem('savedInvoices') || '[]');
+            
+            if (savedInvoices.length === 0) {
+                alert('暂无保存的配送单');
+                return;
+            }
+            
+            // 按配送日期从大到小排序
+            savedInvoices.sort((a, b) => new Date(b.date) - new Date(a.date));
+            
+            // 创建配送单列表HTML
+            let html = '<div class="max-h-96 overflow-y-auto">';
+            html += '<table class="min-w-full bg-white border border-gray-200">';
+            html += '<thead><tr class="bg-gray-100">';
+            html += '<th class="px-4 py-2 border">配送单编号</th>';
+            html += '<th class="px-4 py-2 border">用户名称</th>';
+            html += '<th class="px-4 py-2 border">配送日期</th>';
+            html += '<th class="px-4 py-2 border">商品数量</th>';
+            html += '<th class="px-4 py-2 border">下单总计</th>';
+            html += '<th class="px-4 py-2 border">配送总计</th>';
+            html += '<th class="px-4 py-2 border">保存时间</th>';
+            html += '<th class="px-4 py-2 border">操作</th>';
+            html += '</tr></thead><tbody>';
+            
+            savedInvoices.forEach(invoice => {
+                // 计算配送总计（已分拣商品的总金额）
+                let deliveryTotal = 0;
+                invoice.items.forEach(item => {
+                    if (item.isLocked && item.sortingQuantity) {
+                        const displayQuantity = parseFloat(item.sortingQuantity);
+                        const taxFreeAmount = Math.round(displayQuantity * (parseFloat(item.taxFreePrice) || 0) * 100) / 100;
+                        const taxAmount = Math.round(taxFreeAmount * 0.03 * 100) / 100;
+                        const amount = Math.round((taxFreeAmount + taxAmount) * 100) / 100;
+                        deliveryTotal += amount;
+                    }
+                });
+                const formattedDeliveryTotal = `¥${deliveryTotal.toFixed(2)}`;
+                
+                html += `<tr>
+                    <td class="px-4 py-2 border">${invoice.id}</td>
+                    <td class="px-4 py-2 border">${invoice.userName}</td>
+                    <td class="px-4 py-2 border">${formatDateString(invoice.date)}</td>
+                    <td class="px-4 py-2 border">${invoice.items.length}</td>
+                    <td class="px-4 py-2 border">${invoice.total}</td>
+                    <td class="px-4 py-2 border font-semibold text-green-600">${formattedDeliveryTotal}</td>
+                    <td class="px-4 py-2 border">${formatDateTimeString(invoice.createdAt)}</td>
+                    <td class="px-4 py-2 border">
+                        <button type="button" class="view-invoice-btn text-blue-500 hover:text-blue-700 mr-2" data-invoice-id="${invoice.id}">
+                            <i class="fa fa-eye"></i> 查看
+                        </button>
+                        <button type="button" class="edit-invoice-btn text-green-500 hover:text-green-700 mr-2" data-invoice-id="${invoice.id}">
+                            <i class="fa fa-edit"></i> 编辑
+                        </button>
+                        <button type="button" class="delete-invoice-btn text-red-500 hover:text-red-700 mr-2" data-invoice-id="${invoice.id}">
+                            <i class="fa fa-trash"></i> 删除
+                        </button>
+                        <button type="button" class="print-invoice-btn text-blue-500 hover:text-blue-700" data-invoice-id="${invoice.id}">
+                            <i class="fa fa-print"></i> 打印
+                        </button>
+                    </td>
+                </tr>`;
+            });
+            
+            html += '</tbody></table></div>';
+            
+            // 显示配送单列表
+            const modal = document.createElement('div');
+            modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
+            modal.innerHTML = `
+                <div class="bg-white rounded-lg p-6 max-w-6xl w-full max-h-[90vh] overflow-y-auto">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-xl font-bold">已保存的配送单</h3>
+                        <div class="flex items-center">
+                            <label for="filterDate" class="mr-2">配送日期：</label>
+                            <input type="date" id="filterDate" class="border rounded px-2 py-1 text-sm">
+                            <button type="button" id="filterBtn" class="ml-2 bg-blue-500 text-white px-3 py-1 rounded text-sm">筛选</button>
+                            <button type="button" id="clearFilterBtn" class="ml-2 bg-gray-200 px-3 py-1 rounded text-sm">清除</button>
+                            <button type="button" id="closeModalBtn" class="ml-4 text-gray-500 hover:text-gray-700">
+                                <i class="fa fa-times text-xl"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div id="invoicesListContainer">${html}</div>
+                </div>
+            `;
+            
+            document.body.appendChild(modal);
+            
+            // 关闭模态框
+            document.getElementById('closeModalBtn').addEventListener('click', function() {
+                document.body.removeChild(modal);
+            });
+            
+            // 点击模态框外部关闭
+            modal.addEventListener('click', function(e) {
+                if (e.target === modal) {
+                    document.body.removeChild(modal);
+                }
+            });
+            
+            // 滚动到底部按钮功能
+            const scrollToBottomBtn = modal.querySelector('#scrollToBottomBtn');
+            const scrollContainer = modal.querySelector('.flex-1.overflow-y-auto');
+            
+            if (scrollToBottomBtn && scrollContainer) {
+                // 初始隐藏按钮
+                scrollToBottomBtn.style.display = 'none';
+                
+                // 监听滚动事件
+                scrollContainer.addEventListener('scroll', function() {
+                    // 当滚动距离超过100px时显示按钮
+                    scrollToBottomBtn.style.display = scrollContainer.scrollTop > 100 ? 'block' : 'none';
+                });
+                
+                // 点击按钮滚动到底部
+                scrollToBottomBtn.addEventListener('click', function() {
+                    scrollContainer.scrollTo({
+                        top: scrollContainer.scrollHeight,
+                        behavior: 'smooth'
+                    });
+                });
+            }
+            
+            // 为查看按钮添加事件监听
+            modal.querySelectorAll('.view-invoice-btn').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const invoiceId = this.getAttribute('data-invoice-id');
+                    viewSavedInvoice(invoiceId);
+                });
+            });
+            
+            // 为编辑按钮添加事件监听器
+            modal.querySelectorAll('.edit-invoice-btn').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const invoiceId = this.getAttribute('data-invoice-id');
+                    editSavedInvoice(invoiceId);
+                });
+            });
+            
+            // 为删除按钮添加事件监听器
+            modal.querySelectorAll('.delete-invoice-btn').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const invoiceId = this.getAttribute('data-invoice-id');
+                    deleteSavedInvoice(invoiceId);
+                });
+            });
+            
+            // 筛选功能
+            const filterDateInput = modal.querySelector('#filterDate');
+            const filterBtn = modal.querySelector('#filterBtn');
+            const clearFilterBtn = modal.querySelector('#clearFilterBtn');
+            const invoicesListContainer = modal.querySelector('#invoicesListContainer');
+            
+            // 日期选择变化时自动筛选
+            filterDateInput.addEventListener('change', function() {
+                const filterDate = this.value;
+                filterInvoicesByDate(filterDate);
+            });
+            
+            filterBtn.addEventListener('click', function() {
+                const filterDate = filterDateInput.value;
+                filterInvoicesByDate(filterDate);
+            });
+            
+            clearFilterBtn.addEventListener('click', function() {
+                filterDateInput.value = '';
+                filterInvoicesByDate('');
+            });
+            
+            function filterInvoicesByDate(date) {
+                // 获取已保存的配送单
+                const savedInvoices = JSON.parse(localStorage.getItem('savedInvoices') || '[]');
+                
+                // 筛选配送单
+                let filteredInvoices = savedInvoices;
+                if (date) {
+                    filteredInvoices = savedInvoices.filter(invoice => invoice.date === date);
+                }
+                
+                // 重新渲染配送单列表
+                let filteredHtml = '<div class="flex-1 overflow-y-auto">';
+                filteredHtml += '<table class="min-w-full bg-white border border-gray-200">';
+                filteredHtml += '<thead><tr class="bg-gray-100">';
+                filteredHtml += '<th class="px-4 py-2 border">配送单编号</th>';
+                filteredHtml += '<th class="px-4 py-2 border">用户名称</th>';
+                filteredHtml += '<th class="px-4 py-2 border">配送日期</th>';
+                filteredHtml += '<th class="px-4 py-2 border">商品数量</th>';
+                filteredHtml += '<th class="px-4 py-2 border">总计</th>';
+                filteredHtml += '<th class="px-4 py-2 border">保存时间</th>';
+                filteredHtml += '<th class="px-4 py-2 border">操作</th>';
+                filteredHtml += '</tr></thead><tbody>';
+                
+                if (filteredInvoices.length === 0) {
+                    filteredHtml += '<tr><td colspan="7" class="px-4 py-2 text-center">暂无符合条件的配送单</td></tr>';
+                } else {
+                    filteredInvoices.forEach(invoice => {
+                        filteredHtml += `<tr>
+                            <td class="px-4 py-2 border">${invoice.id}</td>
+                            <td class="px-4 py-2 border">${invoice.userName}</td>
+                            <td class="px-4 py-2 border">${formatDateString(invoice.date)}</td>
+                            <td class="px-4 py-2 border">${invoice.items.length}</td>
+                            <td class="px-4 py-2 border">${invoice.total}</td>
+                            <td class="px-4 py-2 border">${formatDateTimeString(invoice.createdAt)}</td>
+                            <td class="px-4 py-2 border">
+                                <button type="button" class="view-invoice-btn text-blue-500 hover:text-blue-700 mr-2" data-invoice-id="${invoice.id}">
+                                    <i class="fa fa-eye"></i> 查看
+                                </button>
+                                <button type="button" class="edit-invoice-btn text-green-500 hover:text-green-700 mr-2" data-invoice-id="${invoice.id}">
+                                    <i class="fa fa-edit"></i> 编辑
+                                </button>
+                                <button type="button" class="delete-invoice-btn text-red-500 hover:text-red-700 mr-2" data-invoice-id="${invoice.id}">
+                                    <i class="fa fa-trash"></i> 删除
+                                </button>
+                                <button type="button" class="print-invoice-btn text-blue-500 hover:text-blue-700" data-invoice-id="${invoice.id}">
+                                    <i class="fa fa-print"></i> 打印
+                                </button>
+                            </td>
+                        </tr>`;
+                    });
+                }
+                
+                filteredHtml += '</tbody></table></div>';
+                
+                invoicesListContainer.innerHTML = filteredHtml;
+                
+                // 重新绑定事件监听器
+                // 为查看按钮添加事件监听
+                invoicesListContainer.querySelectorAll('.view-invoice-btn').forEach(btn => {
+                    btn.addEventListener('click', function() {
+                        const invoiceId = this.getAttribute('data-invoice-id');
+                        viewSavedInvoice(invoiceId);
+                    });
+                });
+                
+                invoicesListContainer.querySelectorAll('.edit-invoice-btn').forEach(btn => {
+                    btn.addEventListener('click', function() {
+                        const invoiceId = this.getAttribute('data-invoice-id');
+                        editSavedInvoice(invoiceId);
+                    });
+                });
+                
+                invoicesListContainer.querySelectorAll('.delete-invoice-btn').forEach(btn => {
+                    btn.addEventListener('click', function() {
+                        const invoiceId = this.getAttribute('data-invoice-id');
+                        deleteSavedInvoice(invoiceId);
+                    });
+                });
+                
+                invoicesListContainer.querySelectorAll('.print-invoice-btn').forEach(btn => {
+                    btn.addEventListener('click', function() {
+                        const invoiceId = this.getAttribute('data-invoice-id');
+                        printSavedInvoice(invoiceId);
+                    });
+                });
+            }
+            
+            // 为打印按钮添加事件监听器
+            modal.querySelectorAll('.print-invoice-btn').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const invoiceId = this.getAttribute('data-invoice-id');
+                    printSavedInvoice(invoiceId);
+                });
+            });
+        }
+        
+        // 局域网同步功能
+        let syncManager;
+
+        // 初始化局域网同步
+        function initSync() {
+            syncManager = new SyncManager();
+            syncManager.init();
+        }
+
+        // 同步管理器类
+        class SyncManager {
+            constructor() {
+                this.broadcastChannel = null;
+                this.deviceId = null;
+                this.connectedDevices = new Set();
+                this.syncStatus = 'disconnected';
+                this.isSyncing = false;
+                this.offlineQueue = JSON.parse(localStorage.getItem('syncOfflineQueue') || '[]');
+                this.lastSyncTime = localStorage.getItem('lastSyncTime') || null;
+                
+                // 监听存储变化，同步其他标签页的更改
+                window.addEventListener('storage', this.handleStorageChange.bind(this));
+            }
+
+            init() {
+                try {
+                    // 生成设备ID
+                    this.deviceId = this.generateDeviceId();
+                    document.getElementById('currentDeviceId').textContent = this.deviceId;
+                    
+                    // 创建Broadcast Channel
+                    this.broadcastChannel = new BroadcastChannel('delivery-invoice-sync');
+                    
+                    // 监听消息
+                    this.broadcastChannel.onmessage = this.handleMessage.bind(this);
+                    
+                    // 监听错误
+                    this.broadcastChannel.onerror = this.handleError.bind(this);
+                    
+                    // 监听关闭
+                    this.broadcastChannel.onclose = this.handleClose.bind(this);
+                    
+                    // 发送设备上线消息
+                    this.sendDeviceOnline();
+                    
+                    // 设置定期同步
+                    this.setupPeriodicSync();
+                    
+                    // 处理离线队列
+                    this.processOfflineQueue();
+                    
+                    // 更新状态
+                    this.updateSyncStatus('connected');
+                    
+                    console.log('同步管理器初始化成功');
+                } catch (error) {
+                    console.error('同步管理器初始化失败:', error);
+                    this.updateSyncStatus('disconnected');
+                    // 降级到localStorage同步
+                    this.setupLocalStorageSync();
+                }
+            }
+
+            generateDeviceId() {
+                let deviceId = localStorage.getItem('deviceId');
+                if (!deviceId) {
+                    deviceId = 'device_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
+                    localStorage.setItem('deviceId', deviceId);
+                }
+                return deviceId;
+            }
+
+            sendDeviceOnline() {
+                this.sendMessage({
+                    type: 'DEVICE_ONLINE',
+                    deviceId: this.deviceId,
+                    timestamp: new Date().toISOString()
+                });
+            }
+
+            sendDeviceOffline() {
+                this.sendMessage({
+                    type: 'DEVICE_OFFLINE',
+                    deviceId: this.deviceId,
+                    timestamp: new Date().toISOString()
+                });
+            }
+
+            sendDataUpdate(dataType, data, operation = 'update') {
+                this.sendMessage({
+                    type: 'DATA_UPDATE',
+                    deviceId: this.deviceId,
+                    timestamp: new Date().toISOString(),
+                    dataType: dataType,
+                    operation: operation,
+                    data: data
+                });
+            }
+
+            sendMessage(message) {
+                try {
+                    if (this.broadcastChannel && this.broadcastChannel.readyState === 'open') {
+                        this.broadcastChannel.postMessage(message);
+                    } else {
+                        // 添加到离线队列
+                        this.addToOfflineQueue(message);
+                    }
+                } catch (error) {
+                    console.error('发送消息失败:', error);
+                    this.addToOfflineQueue(message);
+                }
+            }
+
+            handleMessage(event) {
+                const message = event.data;
+                
+                if (!message || !message.type) return;
+                
+                console.log('收到消息:', message);
+                
+                switch (message.type) {
+                    case 'DEVICE_ONLINE':
+                        this.handleDeviceOnline(message);
+                        break;
+                    case 'DEVICE_OFFLINE':
+                        this.handleDeviceOffline(message);
+                        break;
+                    case 'DATA_UPDATE':
+                        this.handleDataUpdate(message);
+                        break;
+                    case 'PING':
+                        this.handlePing(message);
+                        break;
+                    case 'PONG':
+                        this.handlePong(message);
+                        break;
+                }
+            }
+
+            handleDeviceOnline(message) {
+                if (message.deviceId !== this.deviceId) {
+                    this.connectedDevices.add(message.deviceId);
+                    this.updateDevicesList();
+                    
+                    // 发送PONG响应
+                    this.sendMessage({
+                        type: 'PONG',
+                        deviceId: this.deviceId,
+                        timestamp: new Date().toISOString(),
+                        targetDeviceId: message.deviceId
+                    });
+                }
+            }
+
+            handleDeviceOffline(message) {
+                if (message.deviceId !== this.deviceId) {
+                    this.connectedDevices.delete(message.deviceId);
+                    this.updateDevicesList();
+                }
+            }
+
+            handleDataUpdate(message) {
+                if (message.deviceId === this.deviceId) return; // 忽略自己发送的消息
+                
+                this.isSyncing = true;
+                this.updateSyncStatus('syncing');
+                
+                try {
+                    switch (message.dataType) {
+                        case 'invoices':
+                            this.syncInvoices(message.data, message.operation);
+                            break;
+                        case 'products':
+                            this.syncProducts(message.data, message.operation);
+                            break;
+                        case 'users':
+                            this.syncUsers(message.data, message.operation);
+                            break;
+                    }
+                    
+                    this.lastSyncTime = new Date().toISOString();
+                    localStorage.setItem('lastSyncTime', this.lastSyncTime);
+                    
+                } catch (error) {
+                    console.error('数据同步失败:', error);
+                } finally {
+                    setTimeout(() => {
+                        this.isSyncing = false;
+                        this.updateSyncStatus('connected');
+                    }, 1000);
+                }
+            }
+
+            handlePing(message) {
+                if (message.deviceId !== this.deviceId) {
+                    this.sendMessage({
+                        type: 'PONG',
+                        deviceId: this.deviceId,
+                        timestamp: new Date().toISOString(),
+                        targetDeviceId: message.deviceId
+                    });
+                }
+            }
+
+            handlePong(message) {
+                if (message.targetDeviceId === this.deviceId) {
+                    this.connectedDevices.add(message.deviceId);
+                    this.updateDevicesList();
+                }
+            }
+
+            handleError(error) {
+                console.error('Broadcast Channel错误:', error);
+                this.updateSyncStatus('disconnected');
+            }
+
+            handleClose() {
+                console.log('Broadcast Channel关闭');
+                this.updateSyncStatus('disconnected');
+            }
+
+            handleStorageChange(event) {
+                // 只处理特定的存储键
+                const syncKeys = ['savedInvoices', 'presetProducts', 'savedUsers'];
+                if (syncKeys.includes(event.key) && event.newValue) {
+                    // 通知其他设备数据已更改
+                    switch (event.key) {
+                        case 'savedInvoices':
+                            this.sendDataUpdate('invoices', JSON.parse(event.newValue));
+                            break;
+                        case 'presetProducts':
+                            this.sendDataUpdate('products', JSON.parse(event.newValue));
+                            break;
+                        case 'savedUsers':
+                            this.sendDataUpdate('users', JSON.parse(event.newValue));
+                            break;
+                    }
+                }
+            }
+
+            syncInvoices(data, operation) {
+                const currentInvoices = JSON.parse(localStorage.getItem('savedInvoices') || '[]');
+                
+                if (operation === 'replace') {
+                    // 完全替换
+                    localStorage.setItem('savedInvoices', JSON.stringify(data));
+                } else {
+                    // 合并数据，基于时间戳解决冲突
+                    const mergedInvoices = this.mergeInvoices(currentInvoices, data);
+                    localStorage.setItem('savedInvoices', JSON.stringify(mergedInvoices));
+                }
+                
+                // 显示同步提示
+                this.showSyncNotification('配送单数据已同步');
+            }
+
+            syncProducts(data, operation) {
+                const currentProducts = JSON.parse(localStorage.getItem('presetProducts') || '[]');
+                
+                if (operation === 'replace') {
+                    localStorage.setItem('presetProducts', JSON.stringify(data));
+                } else {
+                    // 合并商品列表，去重
+                    const mergedProducts = [...new Set([...currentProducts, ...data])];
+                    localStorage.setItem('presetProducts', JSON.stringify(mergedProducts));
+                }
+                
+                this.showSyncNotification('商品数据已同步');
+            }
+
+            syncUsers(data, operation) {
+                const currentUsers = JSON.parse(localStorage.getItem('savedUsers') || '[]');
+                
+                if (operation === 'replace') {
+                    localStorage.setItem('savedUsers', JSON.stringify(data));
+                } else {
+                    // 合并用户列表，去重
+                    const mergedUsers = [...new Set([...currentUsers, ...data])];
+                    localStorage.setItem('savedUsers', JSON.stringify(mergedUsers));
+                }
+                
+                this.showSyncNotification('用户数据已同步');
+            }
+
+            mergeInvoices(localInvoices, remoteInvoices) {
+                const invoiceMap = new Map();
+                
+                // 添加本地发票
+                localInvoices.forEach(invoice => {
+                    invoiceMap.set(invoice.id, invoice);
+                });
+                
+                // 合并远程发票，基于时间戳解决冲突
+                remoteInvoices.forEach(remoteInvoice => {
+                    const localInvoice = invoiceMap.get(remoteInvoice.id);
+                    
+                    if (!localInvoice) {
+                        // 本地没有，直接添加
+                        invoiceMap.set(remoteInvoice.id, remoteInvoice);
+                    } else {
+                        // 比较时间戳
+                        const localTime = new Date(localInvoice.updatedAt || localInvoice.createdAt);
+                        const remoteTime = new Date(remoteInvoice.updatedAt || remoteInvoice.createdAt);
+                        
+                        if (remoteTime > localTime) {
+                            // 远程更新，使用远程数据
+                            invoiceMap.set(remoteInvoice.id, remoteInvoice);
+                        }
+                    }
+                });
+                
+                return Array.from(invoiceMap.values());
+            }
+
+            addToOfflineQueue(message) {
+                this.offlineQueue.push({
+                    message: message,
+                    timestamp: new Date().toISOString()
+                });
+                localStorage.setItem('syncOfflineQueue', JSON.stringify(this.offlineQueue));
+            }
+
+            processOfflineQueue() {
+                if (this.offlineQueue.length > 0 && this.broadcastChannel && this.broadcastChannel.readyState === 'open') {
+                    console.log('处理离线队列，共', this.offlineQueue.length, '条消息');
+                    
+                    this.offlineQueue.forEach(({ message }) => {
+                        this.sendMessage(message);
+                    });
+                    
+                    this.offlineQueue = [];
+                    localStorage.setItem('syncOfflineQueue', JSON.stringify(this.offlineQueue));
+                }
+            }
+
+            setupPeriodicSync() {
+                // 每30秒发送一次PING消息
+                setInterval(() => {
+                    this.sendMessage({
+                        type: 'PING',
+                        deviceId: this.deviceId,
+                        timestamp: new Date().toISOString()
+                    });
+                }, 30000);
+                
+                // 每2分钟清理一次不活跃的设备
+                setInterval(() => {
+                    this.cleanupInactiveDevices();
+                }, 120000);
+            }
+
+            setupLocalStorageSync() {
+                console.log('降级到localStorage同步模式');
+                
+                // 定期检查localStorage变化
+                setInterval(() => {
+                    this.checkLocalStorageChanges();
+                }, 5000);
+            }
+
+            checkLocalStorageChanges() {
+                // 这个方法可以检测其他同源标签页的更改
+                // 由于已经有storage事件监听，这里主要用于检测其他设备的更改
+                // 可以通过比较时间戳来判断是否有新数据
+            }
+
+            cleanupInactiveDevices() {
+                // 清理长时间没有响应的设备
+                // 这里简化处理，实际应用中可以添加更复杂的逻辑
+            }
+
+            updateSyncStatus(status) {
+                this.syncStatus = status;
+                const indicator = document.getElementById('syncIndicator');
+                const statusText = document.getElementById('syncStatus');
+                const deviceCount = document.getElementById('connectedDevices');
+                
+                indicator.className = `sync-indicator ${status} no-print`;
+                
+                switch (status) {
+                    case 'connected':
+                        statusText.textContent = '已连接';
+                        deviceCount.classList.remove('hidden');
+                        deviceCount.textContent = this.connectedDevices.size;
+                        break;
+                    case 'disconnected':
+                        statusText.textContent = '未连接';
+                        deviceCount.classList.add('hidden');
+                        break;
+                    case 'syncing':
+                        statusText.textContent = '同步中...';
+                        break;
+                }
+            }
+
+            updateDevicesList() {
+                const devicesList = document.getElementById('devicesList');
+                const devicesCount = document.getElementById('devicesCount');
+                
+                devicesCount.textContent = this.connectedDevices.size;
+                
+                if (this.connectedDevices.size === 0) {
+                    devicesList.innerHTML = '<div class="text-center py-4 text-gray-500">暂无连接的设备</div>';
+                    return;
+                }
+                
+                devicesList.innerHTML = '';
+                this.connectedDevices.forEach(deviceId => {
+                    const deviceItem = document.createElement('div');
+                    deviceItem.className = 'device-item active';
+                    deviceItem.innerHTML = `
+                        <span class="truncate" title="${deviceId}">${deviceId}</span>
+                        <span class="text-green-500"><i class="fa fa-circle text-xs"></i></span>
+                    `;
+                    devicesList.appendChild(deviceItem);
+                });
+            }
+
+            showSyncNotification(message) {
+                const toast = document.createElement('div');
+                toast.className = 'fixed top-4 left-1/2 transform -translate-x-1/2 bg-success text-white px-4 py-2 rounded shadow-lg z-50 transition-all duration-300';
+                toast.textContent = message;
+                document.body.appendChild(toast);
+                
+                setTimeout(() => {
+                    toast.style.opacity = '0';
+                    setTimeout(() => {
+                        document.body.removeChild(toast);
+                    }, 300);
+                }, 2000);
+            }
+
+            // 测试同步功能
+            testSync() {
+                this.sendDataUpdate('invoices', JSON.parse(localStorage.getItem('savedInvoices') || '[]'));
+                this.showSyncNotification('测试同步消息已发送');
+            }
+
+            // 清理资源
+            cleanup() {
+                if (this.broadcastChannel) {
+                    this.sendDeviceOffline();
+                    this.broadcastChannel.close();
+                }
+            }
+        }
+
+        // 格式化日期字符串
+        function formatDateString(dateString) {
+            const date = new Date(dateString);
+            return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
+        }
+        
+        // 格式化日期时间字符串
+        function formatDateTimeString(dateTimeString) {
+            const date = new Date(dateTimeString);
+            return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日 ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}:${String(date.getSeconds()).padStart(2, '0')}`;
+        }
+        
+        // 查看已保存的配送单（弹窗模式）
+        function viewSavedInvoice(invoiceId) {
+            // 获取已保存的配送单
+            const savedInvoices = JSON.parse(localStorage.getItem('savedInvoices') || '[]');
+            
+            // 查找指定ID的配送单
+            const invoice = savedInvoices.find(inv => inv.id === invoiceId);
+            
+            if (!invoice) {
+                alert('未找到指定的配送单');
+                return;
+            }
+            
+            // 创建查看模态框
+            const viewModal = document.createElement('div');
+            viewModal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
+            viewModal.innerHTML = `
+                <div class="bg-white rounded-lg shadow-xl w-full max-w-6xl max-h-[90vh] overflow-y-auto">
+                    <!-- 模态框头部 -->
+                    <div class="border-b border-gray-200 px-6 py-4 flex justify-between items-center">
+                        <h3 class="text-lg font-semibold text-gray-900">查看配送单</h3>
+                        <button type="button" id="closeViewModal" class="text-gray-400 hover:text-gray-500">
+                            <i class="fa fa-times text-xl"></i>
+                        </button>
+                    </div>
+                    
+                    <!-- 模态框内容 - 使用与配送单相同的格式 -->
+                    <div class="p-6">
+                        <div class="invoice-preview bg-white p-6 rounded-lg border border-gray-200" style="width: 241mm; height: 140mm; margin: 0 auto;">
+                            <!-- 配送单标题 -->
+                            <div class="text-center mb-4">
+                                <h2 class="text-2xl font-bold">宁德市丛林农业发展有限公司</h2>
+                            </div>
+
+                            <!-- 单位信息和日期 -->
+                            <div class="flex justify-between items-center mb-4 text-sm">
+                                <div>
+                                    <p><strong>用户名称:</strong> <span id="viewCompanyName">${invoice.userName}</span></p>
+                                </div>
+                                <div>
+                                    <p class="whitespace-nowrap"><strong>配送日期:</strong> <span id="viewDate">${formatDateString(invoice.date)}</span></p>
+                                </div>
+                            </div>
+
+                            <!-- 商品表格 -->
+                            <div class="overflow-x-auto mb-4">
+                                <table class="min-w-full invoice-border text-xs">
+                                    <thead>
+                                        <tr class="bg-gray-100">
+                                            <th class="px-2 py-1 invoice-border text-left" style="width: 80px; min-width: 80px;">品名</th>
+                                            <th class="px-2 py-1 invoice-border text-center whitespace-nowrap">单位</th>
+                                            <th class="px-2 py-1 invoice-border text-center whitespace-nowrap">数量</th>
+                                            <th class="px-2 py-1 invoice-border text-center whitespace-nowrap">不含税单价</th>
+                                            <th class="px-2 py-1 invoice-border text-center whitespace-nowrap">不含税金额</th>
+                                            <th class="px-2 py-1 invoice-border text-center whitespace-nowrap">税率或征收率</th>
+                                            <th class="px-2 py-1 invoice-border text-center whitespace-nowrap">税额</th>
+                                            <th class="px-2 py-1 invoice-border text-right whitespace-nowrap">价税合计</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="viewItemsTable">
+                                        <!-- 商品行将通过JavaScript动态添加 -->
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <!-- 总计 -->
+                            <div class="flex justify-end mb-4">
+                                <p class="text-sm"><strong>总计:</strong><span id="viewTotalAmount">0.00</span></p>
+                            </div>
+
+                            <!-- 送货人和收货人 -->
+                            <div class="grid grid-cols-2 gap-4 text-xs">
+                                <div>
+                                    <p><strong>送货人:</strong> <span id="viewShipper">${invoice.shipper || ''}</span></p>
+                                </div>
+                                <div>
+                                    <p><strong>收货人:</strong> <span id="viewReceiver">${invoice.receiver || ''}</span></p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 分拣状态信息 -->
+                        <div class="mt-6 bg-gray-50 p-4 rounded-lg">
+                            <h4 class="text-md font-semibold text-gray-900 mb-3">分拣状态</h4>
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <div>
+                                    <p class="text-sm font-medium text-gray-500">商品总数</p>
+                                    <p class="text-lg font-semibold text-gray-900">${invoice.items.length} 项</p>
+                                </div>
+                                <div>
+                                    <p class="text-sm font-medium text-gray-500">已分拣商品</p>
+                                    <p class="text-lg font-semibold text-green-600">${invoice.items.filter(item => item.isLocked).length} 项</p>
+                                </div>
+                                <div>
+                                    <p class="text-sm font-medium text-gray-500">分拣进度</p>
+                                    <p class="text-lg font-semibold ${invoice.items.length > 0 && invoice.items.filter(item => item.isLocked).length === invoice.items.length ? 'text-green-600' : 'text-blue-600'}">
+                                        ${invoice.items.length > 0 ? Math.round((invoice.items.filter(item => item.isLocked).length / invoice.items.length) * 100) : 0}%
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 模态框底部 -->
+                    <div class="bg-gray-50 px-6 py-4 flex justify-end">
+                        <button type="button" id="closeViewModalBtn" class="bg-gray-200 text-gray-800 px-4 py-2 rounded hover:bg-gray-300 mr-3">
+                            关闭
+                        </button>
+                        <button type="button" id="printViewInvoiceBtn" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
+                            <i class="fa fa-print mr-2"></i> 打印
+                        </button>
+                    </div>
+                </div>
+            `;
+            
+            // 将模态框添加到页面
+            document.body.appendChild(viewModal);
+            
+            // 填充商品列表
+            const viewItemsTable = document.getElementById('viewItemsTable');
+            let totalAmount = 0;
+            
+            invoice.items.forEach(item => {
+                // 根据显示的数量计算金额（已分拣显示分拣数量，未分拣显示空白）
+                const displayQuantity = item.isLocked && item.sortingQuantity ? parseFloat(item.sortingQuantity) : 0;
+                const taxFreeAmount = Math.round((displayQuantity || 0) * (parseFloat(item.taxFreePrice) || 0) * 100) / 100;
+                const taxAmount = Math.round(taxFreeAmount * 0.03 * 100) / 100;
+                const amount = Math.round((taxFreeAmount + taxAmount) * 100) / 100;
+                
+                // 累加已分拣商品的价税合计到总计
+                if (item.isLocked && item.sortingQuantity) {
+                    totalAmount += amount;
+                }
+                
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td class="px-2 py-1 invoice-border">${item.name || ''}</td>
+                    <td class="px-2 py-1 invoice-border text-center">${item.unit || ''}</td>
+                    <td class="px-2 py-1 invoice-border text-center">${item.isLocked && item.sortingQuantity ? item.sortingQuantity : ''}</td>
+                    <td class="px-2 py-1 invoice-border text-center">${item.taxFreePrice || ''}</td>
+                    <td class="px-2 py-1 invoice-border text-center">${taxFreeAmount > 0 ? `${taxFreeAmount.toFixed(2)}` : ''}</td>
+                    <td class="px-2 py-1 invoice-border text-center">3%</td>
+                    <td class="px-2 py-1 invoice-border text-center">${taxAmount > 0 ? `${taxAmount.toFixed(2)}` : ''}</td>
+                    <td class="px-2 py-1 invoice-border text-right">${amount > 0 ? `${amount.toFixed(2)}` : ''}</td>
+                `;
+                viewItemsTable.appendChild(row);
+            });
+            
+            // 更新总计显示
+            document.getElementById('viewTotalAmount').textContent = totalAmount.toFixed(2);
+            
+            // 添加关闭按钮事件
+            document.getElementById('closeViewModal').addEventListener('click', function() {
+                document.body.removeChild(viewModal);
+            });
+            
+            document.getElementById('closeViewModalBtn').addEventListener('click', function() {
+                document.body.removeChild(viewModal);
+            });
+            
+            // 添加打印按钮事件
+            document.getElementById('printViewInvoiceBtn').addEventListener('click', function() {
+                printSavedInvoice(invoiceId);
+                document.body.removeChild(viewModal);
+            });
+            
+            // 点击模态框外部关闭
+            viewModal.addEventListener('click', function(e) {
+                if (e.target === viewModal) {
+                    document.body.removeChild(viewModal);
+                }
+            });
+        }
+        
+        // 编辑已保存的配送单
+        function editSavedInvoice(invoiceId) {
+            // 获取已保存的配送单
+            const savedInvoices = JSON.parse(localStorage.getItem('savedInvoices') || '[]');
+            
+            // 查找指定ID的配送单
+            const invoice = savedInvoices.find(inv => inv.id === invoiceId);
+            
+            if (!invoice) {
+                alert('未找到指定的配送单');
+                return;
+            }
+            
+            // 确认是否要编辑
+            if (confirm(`确定要编辑配送单"${invoice.id}"吗？编辑后将更新原配送单内容，分拣数据将被保留。`)) {
+                // 填充表单数据
+                const companyNameInput = document.getElementById('companyName');
+                companyNameInput.value = invoice.userName;
+                // 添加编辑标记
+                companyNameInput.setAttribute('data-editing-invoice-id', invoiceId);
+                
+                document.getElementById('invoiceDate').value = invoice.date;
+                
+                // 清空商品列表
+                const itemsTable = document.getElementById('itemsTable');
+                itemsTable.innerHTML = '';
+                
+                // 添加商品
+                invoice.items.forEach(item => {
+                    addNewItem(item.name, item.unit, item.quantity, item.taxFreePrice);
+                });
+                
+                // 更新预览
+                updatePreview();
+                
+                // 关闭已保存配送单列表模态框
+                const modal = document.querySelector('.fixed.inset-0.bg-black.bg-opacity-50');
+                if (modal) {
+                    document.body.removeChild(modal);
+                }
+                
+                // 提示用户编辑完成后保存
+                alert('配送单数据已加载，请编辑后点击"保存配送单"按钮保存更改。');
+            }
+        }
+        
+        // 显示分拣系统
+        function showSortingSystem() {
+            // 获取已保存的配送单
+            const savedInvoices = JSON.parse(localStorage.getItem('savedInvoices') || '[]');
+            
+            if (savedInvoices.length === 0) {
+                alert('暂无保存的配送单');
+                return;
+            }
+            
+            // 按用户分组商品
+            const productsByUser = {};
+            
+            savedInvoices.forEach(invoice => {
+                if (!productsByUser[invoice.userName]) {
+                    productsByUser[invoice.userName] = [];
+                }
+                
+                invoice.items.forEach(item => {
+                    // 检查是否已存在相同商品
+                    const existingProduct = productsByUser[invoice.userName].find(p => p.name === item.name);
+                    
+                    if (existingProduct) {
+                        // 如果已存在，增加数量并确保精度，但保留原有的分拣状态
+                        existingProduct.quantity = Math.round((existingProduct.quantity + item.quantity) * 100) / 100;
+                        // 只有当原商品未分拣时，才可能更新分拣状态
+                        if (!existingProduct.isLocked && (item.sortingQuantity || item.isLocked)) {
+                            existingProduct.sortingQuantity = item.sortingQuantity || '';
+                            existingProduct.isLocked = item.isLocked || false;
+                        }
+                    } else {
+                        // 如果不存在，添加新商品，包含分拣相关属性
+                        productsByUser[invoice.userName].push({
+                            name: item.name,
+                            unit: item.unit,
+                            quantity: item.quantity,
+                            taxFreePrice: item.taxFreePrice,
+                            invoiceId: invoice.id,
+                            date: invoice.date,
+                            sortingQuantity: item.sortingQuantity || '',
+                            isLocked: item.isLocked || false
+                        });
+                    }
+                });
+            });
+            
+            // 创建分拣系统HTML
+            let html = '<div class="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100 scroll-smooth">';
+            html += '<div class="bg-white border border-gray-200 rounded-lg">';
+            
+            // 添加统一的表头
+            html += `<div class="flex items-center bg-gray-50 px-4 py-3 border-b border-gray-200 rounded-t-lg">`;
+            html += `<span class="w-[20%] px-2 font-semibold text-gray-600">用户</span>`;
+            html += `<span class="w-[20%] px-2 font-semibold text-gray-600">商品名称</span>`;
+            html += `<span class="w-[8%] text-center font-semibold text-gray-600">单位</span>`;
+            html += `<span class="w-[12%] text-right px-2 font-semibold text-gray-600">下单数量</span>`;
+            html += `<span class="w-[12%] text-center font-semibold text-gray-600">分拣数量</span>`;
+            html += `<span class="w-[12%] text-center font-semibold text-gray-600">分拣状态</span>`;
+            html += `<span class="w-[16%] text-center font-semibold text-gray-600">操作</span>`;
+            html += `</div>`;
+            
+            // 添加数据行
+            html += `<div class="divide-y divide-gray-200">`;
+            
+            // 遍历所有商品
+            let allProducts = [];
+            Object.keys(productsByUser).forEach(userName => {
+                productsByUser[userName].forEach(product => {
+                    allProducts.push({...product, userName});
+                });
+            });
+            
+            // 按商品名称字母排序
+            allProducts.sort((a, b) => a.name.localeCompare(b.name));
+            
+            // 生成数据行
+            allProducts.forEach(product => {
+                const sortingQuantity = product.sortingQuantity || '';
+                const isLocked = product.isLocked || false;
+                const status = isLocked ? '已分拣' : '未分拣';
+                const statusClass = isLocked ? 'text-green-600' : 'text-red-600';
+                
+                html += `<div class="flex items-center py-3 px-4 hover:bg-gray-50">`;
+                html += `<span class="w-[20%] px-2 font-semibold text-blue-600">${product.userName}</span>`;
+                html += `<span class="w-[20%] px-2 text-gray-700 font-medium truncate" title="${product.name}">${product.name}</span>`;
+                html += `<span class="w-[8%] text-center text-gray-500">${product.unit}</span>`;
+                html += `<span class="w-[12%] text-right px-2 font-bold">${product.quantity}</span>`;
+                html += `<span class="w-[12%] text-center">`;
+                html += `<input type="number" 
+                           class="sorting-quantity w-16 text-center px-2 py-1 border rounded ${isLocked ? 'bg-gray-200' : ''} no-spin-buttons" 
+                           data-user="${product.userName}" data-product="${product.name}" 
+                           ${isLocked ? 'disabled' : ''}
+                           value="${sortingQuantity}"
+                           min="0"
+                           step="0.01"
+                           onwheel="this.blur()"
+                           onkeydown="if(event.key==='ArrowUp'||event.key==='ArrowDown')event.preventDefault()">`;
+                html += `</span>`;
+                html += `<span class="w-[12%] text-center font-semibold ${statusClass} sorting-status">${status}</span>`;
+                html += `<span class="w-[16%] text-center">`;
+                html += `<button type="button" class="print-sorting bg-blue-500 text-white px-2 py-0.5 rounded text-xs mr-1" 
+                                 data-user="${product.userName}" data-product="${product.name}">打印</button>`;
+                html += `<button type="button" class="undo-sorting bg-gray-500 text-white px-2 py-0.5 rounded text-xs" 
+                                 data-user="${product.userName}" data-product="${product.name}" ${!isLocked ? 'disabled' : ''}>撤销</button>`;
+                html += `</span>`;
+                html += `</div>`;
+            });
+            
+            html += `</div>`;
+            html += `</div>`;
+            html += `</div>`;
+            
+            // 显示分拣系统模态框
+            const modal = document.createElement('div');
+            modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
+            modal.innerHTML = `
+                <div class="bg-white rounded-lg p-6 max-w-6xl w-full max-h-[90vh] flex flex-col">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-xl font-bold">分拣系统</h3>
+                        <div class="flex items-center">
+                            <label for="sortingFilterDate" class="mr-2">筛选日期：</label>
+                            <input type="date" id="sortingFilterDate" class="border rounded px-2 py-1 text-sm">
+                            
+                            
+                            <button type="button" id="closeSortingModalBtn" class="ml-4 text-gray-500 hover:text-gray-700">
+                                <i class="fa fa-times text-xl"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="mb-4">
+                        <p class="text-gray-600">以下是按用户分组的商品列表，可用于分拣参考：</p>
+                    </div>
+                    <div id="sortingListContainer" class="flex-1 overflow-y-auto relative">${html}</div>
+                    <button type="button" id="scrollToBottomBtn" class="fixed bottom-4 right-4 bg-blue-500 text-white p-2 rounded-full shadow-lg hover:bg-blue-600 transition-colors">
+                        <i class="fa fa-arrow-down"></i>
+                    </button>
+                </div>
+            `;
+            
+            document.body.appendChild(modal);
+            
+            // 添加事件监听器
+            addSortingEventListeners();
+            
+            // 设置默认日期为当天
+            const sortingFilterDateInput = modal.querySelector('#sortingFilterDate');
+            const sortingListContainer = modal.querySelector('#sortingListContainer');
+            
+            // 设置默认日期为当天
+            const today = new Date();
+            const year = today.getFullYear();
+            const month = String(today.getMonth() + 1).padStart(2, '0');
+            const day = String(today.getDate()).padStart(2, '0');
+            const dateString = `${year}-${month}-${day}`;
+            sortingFilterDateInput.value = dateString;
+            
+            // 添加日期筛选事件监听器
+            sortingFilterDateInput.addEventListener('change', function() {
+                const filterDate = this.value;
+                filterSortingByDate(filterDate);
+            });
+            
+            // 触发初始筛选
+            filterSortingByDate(dateString);
+            
+            
+            // 根据日期筛选分拣列表
+            function filterSortingByDate(date) {
+                // 获取已保存的配送单
+                const savedInvoices = JSON.parse(localStorage.getItem('savedInvoices') || '[]');
+                
+                // 筛选配送单
+                let filteredInvoices = savedInvoices;
+                if (date) {
+                    filteredInvoices = savedInvoices.filter(invoice => invoice.date === date);
+                }
+                
+                if (filteredInvoices.length === 0) {
+                    sortingListContainer.innerHTML = '<div class="text-center py-8 text-gray-500">暂无符合条件的配送单</div>';
+                    return;
+                }
+                
+                // 按用户分组商品
+                const productsByUser = {};
+                
+                filteredInvoices.forEach(invoice => {
+                    if (!productsByUser[invoice.userName]) {
+                        productsByUser[invoice.userName] = [];
+                    }
+                    
+                    invoice.items.forEach(item => {
+                        // 检查是否已存在相同商品
+                        const existingProduct = productsByUser[invoice.userName].find(p => p.name === item.name);
+                        
+                        if (existingProduct) {
+                            // 如果已存在，增加数量，但保留原有的分拣状态
+                            existingProduct.quantity += item.quantity;
+                            // 只有当原商品未分拣时，才可能更新分拣状态
+                            if (!existingProduct.isLocked) {
+                                existingProduct.sortingQuantity = item.sortingQuantity || '';
+                                existingProduct.isLocked = item.isLocked || false;
+                            }
+                        } else {
+                            // 如果不存在，添加新商品
+                            productsByUser[invoice.userName].push({
+                                name: item.name,
+                                unit: item.unit,
+                                quantity: item.quantity,
+                                taxFreePrice: item.taxFreePrice,
+                                invoiceId: invoice.id,
+                                date: invoice.date,
+                                sortingQuantity: item.sortingQuantity || '',
+                                isLocked: item.isLocked || false
+                            });
+                        }
+                    });
+                });
+                
+                // 创建筛选后的分拣系统HTML
+                let filteredHtml = '<div class="flex-1 overflow-y-auto">';
+                filteredHtml += '<div class="bg-white border border-gray-200 rounded-lg">';
+                
+                // 添加统一的表头
+                filteredHtml += `<div class="flex items-center bg-gray-50 px-4 py-3 border-b border-gray-200 rounded-t-lg">`;
+                filteredHtml += `<span class="w-[20%] px-2 font-semibold text-gray-600">用户</span>`;
+                filteredHtml += `<span class="w-[20%] px-2 font-semibold text-gray-600">商品名称</span>`;
+                filteredHtml += `<span class="w-[8%] text-center font-semibold text-gray-600">单位</span>`;
+                filteredHtml += `<span class="w-[12%] text-right px-2 font-semibold text-gray-600">下单数量</span>`;
+                filteredHtml += `<span class="w-[12%] text-center font-semibold text-gray-600">分拣数量</span>`;
+                filteredHtml += `<span class="w-[12%] text-center font-semibold text-gray-600">分拣状态</span>`;
+                filteredHtml += `<span class="w-[16%] text-center font-semibold text-gray-600">操作</span>`;
+                filteredHtml += `</div>`;
+                
+                // 添加数据行
+                filteredHtml += `<div class="divide-y divide-gray-200">`;
+                
+                // 遍历所有商品
+                let allProducts = [];
+                Object.keys(productsByUser).forEach(userName => {
+                    productsByUser[userName].forEach(product => {
+                        allProducts.push({...product, userName});
+                    });
+                });
+                
+                // 按用户名称排序
+                allProducts.sort((a, b) => a.userName.localeCompare(b.userName));
+                
+                // 生成数据行
+                allProducts.forEach(product => {
+                    const sortingQuantity = product.sortingQuantity || '';
+                    const isLocked = product.isLocked || false;
+                    const status = isLocked ? '已分拣' : '未分拣';
+                    const statusClass = isLocked ? 'text-green-600' : 'text-red-600';
+                    
+                    filteredHtml += `<div class="flex items-center py-3 px-4 hover:bg-gray-50">`;
+                    filteredHtml += `<span class="w-[20%] px-2 font-semibold text-blue-600">${product.userName}</span>`;
+                    filteredHtml += `<span class="w-[20%] px-2 text-gray-700 font-medium truncate" title="${product.name}">${product.name}</span>`;
+                    filteredHtml += `<span class="w-[8%] text-center text-gray-500">${product.unit}</span>`;
+                    filteredHtml += `<span class="w-[12%] text-right px-2 font-bold">${product.quantity}</span>`;
+                    filteredHtml += `<span class="w-[12%] text-center">`;
+                    filteredHtml += `<input type="number" 
+                                       class="sorting-quantity w-16 text-center px-2 py-1 border rounded ${isLocked ? 'bg-gray-200' : ''} no-spin-buttons" 
+                                       data-user="${product.userName}" data-product="${product.name}" 
+                                       ${isLocked ? 'disabled' : ''}
+                                       value="${sortingQuantity}"
+                                       min="0"
+                                       step="0.01"
+                                       onwheel="this.blur()"
+                                       onkeydown="if(event.key==='ArrowUp'||event.key==='ArrowDown')event.preventDefault()">`;
+                    filteredHtml += `</span>`;
+                    filteredHtml += `<span class="w-[12%] text-center font-semibold ${statusClass} sorting-status">${status}</span>`;
+                    filteredHtml += `<span class="w-[16%] text-center">`;
+                    filteredHtml += `<button type="button" class="print-sorting bg-blue-500 text-white px-2 py-0.5 rounded text-xs mr-1" 
+                                         data-user="${product.userName}" data-product="${product.name}">打印</button>`;
+                    filteredHtml += `<button type="button" class="undo-sorting bg-gray-500 text-white px-2 py-0.5 rounded text-xs" 
+                                         data-user="${product.userName}" data-product="${product.name}" ${!isLocked ? 'disabled' : ''}>撤销</button>`;
+                    filteredHtml += `</span>`;
+                    filteredHtml += `</div>`;
+                });
+                
+                filteredHtml += `</div>`;
+                filteredHtml += `</div>`;
+                filteredHtml += `</div>`;
+                
+                sortingListContainer.innerHTML = filteredHtml;
+                addSortingEventListeners();
+            }
+            
+            // 关闭模态框
+            const closeBtn = modal.querySelector('#closeSortingModalBtn');
+            if (closeBtn) {
+                closeBtn.addEventListener('click', function() {
+                    document.body.removeChild(modal);
+                });
+            }
+            
+            // 点击模态框外部关闭
+            modal.addEventListener('click', function(e) {
+                if (e.target === modal) {
+                    document.body.removeChild(modal);
+                }
+            });
+            
+            // 滚动到底部按钮功能
+            const scrollToBottomBtn = modal.querySelector('#scrollToBottomBtn');
+            const scrollContainer = modal.querySelector('.flex-1.overflow-y-auto');
+            
+            if (scrollToBottomBtn && scrollContainer) {
+                // 初始隐藏按钮
+                scrollToBottomBtn.style.display = 'none';
+                
+                // 监听滚动事件
+                scrollContainer.addEventListener('scroll', function() {
+                    // 当滚动距离超过100px时显示按钮
+                    scrollToBottomBtn.style.display = scrollContainer.scrollTop > 100 ? 'block' : 'none';
+                });
+                
+                // 点击按钮滚动到底部
+                scrollToBottomBtn.addEventListener('click', function() {
+                    scrollContainer.scrollTo({
+                        top: scrollContainer.scrollHeight,
+                        behavior: 'smooth'
+                    });
+                });
+            }
+        }
+        
+        // 分拣系统事件处理函数
+        function addSortingEventListeners() {
+            // 为所有分拣数量输入框添加事件监听
+            document.querySelectorAll('.sorting-quantity').forEach(input => {
+                // 阻止上下箭头键改变数值
+                input.addEventListener('keydown', function(e) {
+                    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                        e.preventDefault();
+                    }
+                });
+                
+                input.addEventListener('keypress', function(e) {
+                    if (e.key === 'Enter') {
+                        lockSortingQuantity(this);
+                    }
+                });
+                
+
+            });
+
+            // 为所有打印按钮添加事件监听
+            console.log('绑定打印按钮事件监听');
+            const printButtons = document.querySelectorAll('.print-sorting');
+            console.log('找到打印按钮数量:', printButtons.length);
+            printButtons.forEach((button, index) => {
+                console.log('绑定按钮索引:', index, '用户:', button.dataset.user, '商品:', button.dataset.product);
+                button.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    const userName = this.dataset.user;
+                    const productName = this.dataset.product;
+                    console.log('打印按钮点击:', userName, productName);
+                    printSortingLabel(userName, productName);
+                });
+                // 立即测试点击
+                if (index === 0) {
+                    console.log('测试第一个打印按钮');
+                }
+            });
+            
+            // 为所有撤销按钮添加事件监听
+            document.querySelectorAll('.undo-sorting').forEach(button => {
+                button.addEventListener('click', function() {
+                    const userName = this.dataset.user;
+                    const productName = this.dataset.product;
+                    // 显示确认提示
+                    if (confirm(`确定要撤销"${userName}"的"${productName}"分拣记录吗？`)) {
+                        undoSorting(userName, productName);
+                    }
+                });
+            });
+        }
+
+        function undoSorting(userName, productName) {
+            // 从localStorage获取保存的发票数据
+            const savedInvoices = JSON.parse(localStorage.getItem('savedInvoices') || '[]');
+            
+            // 查找并重置对应的商品分拣状态
+            savedInvoices.forEach(invoice => {
+                if (invoice.userName === userName) {
+                    invoice.items.forEach(item => {
+                        if (item.name === productName) {
+                            item.sortingQuantity = '';
+                            item.isLocked = false;
+                        }
+                    });
+                }
+            });
+            
+            // 保存更新后的数据
+            localStorage.setItem('savedInvoices', JSON.stringify(savedInvoices));
+            
+            // 更新UI状态
+            const inputElement = document.querySelector(`.sorting-quantity[data-user="${userName}"][data-product="${productName}"]`);
+            if (inputElement) {
+                inputElement.disabled = false;
+                inputElement.classList.remove('bg-gray-200');
+                inputElement.value = '';
+            }
+            
+            // 更新分拣状态显示
+            const statusElement = inputElement.closest('div').querySelector('.sorting-status');
+            if (statusElement) {
+                statusElement.textContent = '未分拣';
+                statusElement.classList.remove('text-green-600');
+                statusElement.classList.add('text-red-600');
+            }
+            
+            // 更新撤销按钮状态
+            const undoButton = document.querySelector(`.undo-sorting[data-user="${userName}"][data-product="${productName}"]`);
+            if (undoButton) {
+                undoButton.disabled = true;
+            }
+        }
+
+        function lockSortingQuantity(input) {
+            const userName = input.dataset.user;
+            const productName = input.dataset.product;
+            const quantity = input.value.trim();
+            
+            if (quantity === '' || isNaN(quantity) || parseInt(quantity) < 0) {
+                alert('请输入有效的分拣数量');
+                input.value = '';
+                return;
+            }
+
+            // 更新本地存储中的数据
+            const savedInvoices = JSON.parse(localStorage.getItem('savedInvoices') || '[]');
+            let hasUpdated = false;
+            
+            // 遍历所有发票，更新所有匹配的商品
+            savedInvoices.forEach(invoice => {
+                if (invoice.userName === userName) {
+                    invoice.items.forEach(item => {
+                        if (item.name === productName) {
+                            item.sortingQuantity = parseFloat(quantity);
+                            item.isLocked = true;
+                            hasUpdated = true;
+                            console.log('已更新发票ID:', invoice.id, '中的商品:', productName);
+                        }
+                    });
+                }
+            });
+            
+            if (hasUpdated) {
+                localStorage.setItem('savedInvoices', JSON.stringify(savedInvoices));
+                console.log('已保存更新后的发票数据');
+            } else {
+                console.warn('未找到需要更新的商品:', userName, '-', productName);
+            }
+
+            // 实时更新UI状态
+            input.disabled = true;
+            input.classList.add('bg-gray-200');
+            
+            // 更新分拣状态显示
+            const statusElement = input.closest('div').querySelector('.sorting-status');
+            if (statusElement) {
+                statusElement.textContent = '已分拣';
+                statusElement.classList.remove('text-red-600');
+                statusElement.classList.add('text-green-600');
+            }
+            
+            // 更新撤销按钮状态
+            const undoButton = document.querySelector(`.undo-sorting[data-user="${userName}"][data-product="${productName}"]`);
+            if (undoButton) {
+                undoButton.disabled = false;
+            }
+            
+            // 自动打印分拣标签
+            setTimeout(() => {
+                console.log('执行自动打印:', userName, productName);
+                // 直接调用打印函数，不显示任何弹窗
+                const printWindow = window.open('', '_blank', 'width=300,height=400');
+                if (printWindow) {
+                    const savedInvoices = JSON.parse(localStorage.getItem('savedInvoices') || '[]');
+                    let product = null;
+                    
+                    savedInvoices.forEach(invoice => {
+                        if (invoice.userName === userName) {
+                            invoice.items.forEach(item => {
+                                if (item.name === productName) {
+                                    product = item;
+                                }
+                            });
+                        }
+                    });
+
+                    if (product) {
+                        const printContent = `
+                            <!DOCTYPE html>
+                            <html>
+                            <head>
+                                <title>分拣标签</title>
+                                <style>
+                                    @media print {
+                                        @page {
+                                            size: 60mm 40mm;
+                                            margin: 0;
+                                            padding: 0;
+                                        }
+                                        body {
+                                            margin: 0;
+                                            padding: 3mm;
+                                            font-family: Arial, sans-serif;
+                                            font-size: 8pt;
+                                            line-height: 1.2;
+                                            width: 54mm;
+                                            height: 34mm;
+                                            display: flex;
+                                            flex-direction: column;
+                                            justify-content: space-between;
+                                        }
+                                        .label-header {
+                                            text-align: center;
+                                            font-weight: bold;
+                                            font-size: 10pt;
+                                            margin-bottom: 2mm;
+                                            border-bottom: 1px solid #000;
+                                            padding-bottom: 1mm;
+                                        }
+                                        .label-content {
+                                            flex: 1;
+                                        }
+                                        .label-row {
+                                            display: flex;
+                                            justify-content: space-between;
+                                            margin-bottom: 1mm;
+                                        }
+                                        .label-row strong {
+                                            min-width: 20mm;
+                                        }
+                                        .label-footer {
+                                            text-align: center;
+                                            font-weight: bold;
+                                            margin-top: 2mm;
+                                            border-top: 1px solid #000;
+                                            padding-top: 1mm;
+                                        }
+                                        .status-completed {
+                                            color: green;
+                                        }
+                                        .status-pending {
+                                            color: red;
+                                        }
+                                    }
+                                </style>
+                            </head>
+                            <body>
+                                <div class="label-header">分拣标签</div>
+                                <div class="label-content">
+                                    <div class="label-row">
+                                        <strong>客户:</strong>
+                                        <span>${userName}</span>
+                                    </div>
+                                    <div class="label-row">
+                                        <strong>商品:</strong>
+                                        <span>${product.name}</span>
+                                    </div>
+                                    <div class="label-row">
+                                        <strong>单位:</strong>
+                                        <span>${product.unit}</span>
+                                    </div>
+                                    <div class="label-row">
+                                        <strong>下单数量:</strong>
+                                        <span>${product.quantity}</span>
+                                    </div>
+                                    <div class="label-row">
+                                        <strong>分拣数量:</strong>
+                                        <span>${product.sortingQuantity || 0}</span>
+                                    </div>
+                                </div>
+                                <div class="label-footer">
+                                    <span class="${product.isLocked ? 'status-completed' : 'status-pending'}">
+                                        ${product.isLocked ? '已分拣' : '未分拣'}
+                                    </span>
+                                </div>
+                            </body>
+                            </html>
+                        `;
+                        printWindow.document.write(printContent);
+                        printWindow.document.close();
+                        
+                        // 先设置事件监听器，再执行打印
+                        printWindow.onafterprint = function() {
+                            console.log('打印完成，关闭窗口');
+                            try {
+                                printWindow.close();
+                            } catch (e) {
+                                console.error('关闭窗口失败:', e);
+                            }
+                        };
+                        
+                        // WebKit浏览器的兼容性处理
+                        printWindow.onwebkitendprint = function() {
+                            console.log('WebKit打印完成，关闭窗口');
+                            try {
+                                printWindow.close();
+                            } catch (e) {
+                                console.error('关闭窗口失败:', e);
+                            }
+                        };
+                        
+                        // 备用方案：设置延时自动关闭
+                        setTimeout(function() {
+                            if (!printWindow.closed) {
+                                console.log('超时自动关闭窗口');
+                                try {
+                                    printWindow.close();
+                                } catch (e) {
+                                    console.error('关闭窗口失败:', e);
+                                }
+                            }
+                        }, 3000);
+                        
+                        // 执行打印
+                        printWindow.print();
+                    }
+                }
+            }, 100);
+        }
+
+
+
+        function printSortingLabel(userName, productName) {
+            const savedInvoices = JSON.parse(localStorage.getItem('savedInvoices') || '[]');
+            let product = null;
+            
+            savedInvoices.forEach(invoice => {
+                if (invoice.userName === userName) {
+                    invoice.items.forEach(item => {
+                        if (item.name === productName) {
+                            product = item;
+                        }
+                    });
+                }
+            });
+
+            if (!product) return;
+
+            // 创建打印内容 - 适配60*40mm热敏纸
+            const printContent = `
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>分拣标签</title>
+                    <style>
+                        @media print {
+                            @page {
+                                size: 60mm 40mm;
+                                margin: 0;
+                                padding: 0;
+                            }
+                            body {
+                                margin: 0;
+                                padding: 3mm;
+                                font-family: Arial, sans-serif;
+                                font-size: 8pt;
+                                line-height: 1.2;
+                                width: 54mm;
+                                height: 34mm;
+                                display: flex;
+                                flex-direction: column;
+                                justify-content: space-between;
+                            }
+                            .label-header {
+                                text-align: center;
+                                font-weight: bold;
+                                font-size: 10pt;
+                                margin-bottom: 2mm;
+                                border-bottom: 1px solid #000;
+                                padding-bottom: 1mm;
+                            }
+                            .label-content {
+                                flex: 1;
+                            }
+                            .label-row {
+                                display: flex;
+                                justify-content: space-between;
+                                margin-bottom: 1mm;
+                            }
+                            .label-row strong {
+                                min-width: 20mm;
+                            }
+                            .label-footer {
+                                text-align: center;
+                                font-weight: bold;
+                                margin-top: 2mm;
+                                border-top: 1px solid #000;
+                                padding-top: 1mm;
+                            }
+                            .status-completed {
+                                color: green;
+                            }
+                            .status-pending {
+                                color: red;
+                            }
+                        }
+                    </style>
+                </head>
+                <body>
+                    <div class="label-header">分拣标签</div>
+                    <div class="label-content">
+                        <div class="label-row">
+                            <strong>客户:</strong>
+                            <span>${userName}</span>
+                        </div>
+                        <div class="label-row">
+                            <strong>商品:</strong>
+                            <span>${product.name}</span>
+                        </div>
+                        <div class="label-row">
+                            <strong>单位:</strong>
+                            <span>${product.unit}</span>
+                        </div>
+                        <div class="label-row">
+                            <strong>下单数量:</strong>
+                            <span>${product.quantity}</span>
+                        </div>
+                        <div class="label-row">
+                            <strong>分拣数量:</strong>
+                            <span>${product.sortingQuantity || 0}</span>
+                        </div>
+                    </div>
+                    <div class="label-footer">
+                        <span class="${product.isLocked ? 'status-completed' : 'status-pending'}">
+                            ${product.isLocked ? '已分拣' : '未分拣'}
+                        </span>
+                    </div>
+                </body>
+                </html>
+            `;
+
+            // 创建打印窗口
+            const printWindow = window.open('', '_blank', 'width=300,height=400');
+            if (!printWindow) {
+                console.warn('打印窗口被浏览器阻止，请允许弹出窗口后重试');
+                return;
+            }
+            // 写入打印内容
+            printWindow.document.write(printContent);
+            printWindow.document.close();
+            
+            // 简化的自动关闭方案
+            function closePrintWindow() {
+                if (printWindow && !printWindow.closed) {
+                    console.log('关闭打印窗口');
+                    try {
+                        printWindow.close();
+                    } catch (e) {
+                        console.error('关闭窗口失败:', e);
+                    }
+                }
+            }
+            
+            // 立即设置定时器，确保窗口会被关闭
+            setTimeout(closePrintWindow, 2000);
+            
+            // 执行打印
+            if (printWindow.print) {
+                printWindow.print();
+            } else {
+                console.error('打印功能不可用');
+                closePrintWindow();
+            }
+        }
+        
+        // 打印已保存的配送单
+        function printSavedInvoice(invoiceId) {
+            // 获取已保存的配送单
+            const savedInvoices = JSON.parse(localStorage.getItem('savedInvoices') || '[]');
+            
+            // 查找指定ID的配送单
+            const invoice = savedInvoices.find(inv => inv.id === invoiceId);
+            
+            if (!invoice) {
+                alert('未找到指定的配送单');
+                return;
+            }
+            
+            // 创建打印专用的模态框（与查看订单相同格式）
+            const printModal = document.createElement('div');
+            printModal.id = 'printModal'; // 添加ID以便区分
+            printModal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
+            printModal.innerHTML = `
+                <div class="bg-white rounded-lg shadow-xl w-full max-w-6xl max-h-[90vh] overflow-y-auto">
+                    <div class="p-6">
+                        <div class="invoice-preview bg-white p-6 rounded-lg border border-gray-200" style="width: 241mm; height: 140mm; margin: 0 auto;">
+                            <!-- 配送单标题 -->
+                            <div class="text-center mb-4">
+                                <h2 class="text-2xl font-bold">宁德市丛林农业发展有限公司</h2>
+                            </div>
+
+                            <!-- 单位信息和日期 -->
+                            <div class="flex justify-between items-center mb-4 text-sm">
+                                <div>
+                                    <p><strong>用户名称:</strong> <span>${invoice.userName}</span></p>
+                                </div>
+                                <div>
+                                    <p class="whitespace-nowrap"><strong>配送日期:</strong> <span>${formatDateString(invoice.date)}</span></p>
+                                </div>
+                            </div>
+
+                            <!-- 商品表格 -->
+                            <div class="overflow-x-auto mb-4">
+                                <table class="min-w-full invoice-border text-xs">
+                                    <thead>
+                                        <tr class="bg-gray-100">
+                                            <th class="px-2 py-1 invoice-border text-left" style="width: 80px; min-width: 80px;">品名</th>
+                                            <th class="px-2 py-1 invoice-border text-center whitespace-nowrap">单位</th>
+                                            <th class="px-2 py-1 invoice-border text-center whitespace-nowrap">数量</th>
+                                            <th class="px-2 py-1 invoice-border text-center whitespace-nowrap">不含税单价</th>
+                                            <th class="px-2 py-1 invoice-border text-center whitespace-nowrap">不含税金额</th>
+                                            <th class="px-2 py-1 invoice-border text-center whitespace-nowrap">税率或征收率</th>
+                                            <th class="px-2 py-1 invoice-border text-center whitespace-nowrap">税额</th>
+                                            <th class="px-2 py-1 invoice-border text-right whitespace-nowrap">价税合计</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="printItemsTable">
+                                        <!-- 商品行将通过JavaScript动态添加 -->
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <!-- 总计 -->
+                            <div class="flex justify-end mb-4">
+                                <p class="text-sm"><strong>总计:</strong><span id="printTotalAmount">0.00</span></p>
+                            </div>
+
+                            <!-- 送货人和收货人 -->
+                            <div class="grid grid-cols-2 gap-4 text-xs">
+                                <div>
+                                    <p><strong>送货人:</strong> <span>${invoice.shipper || ''}</span></p>
+                                </div>
+                                <div>
+                                    <p><strong>收货人:</strong> <span>${invoice.receiver || ''}</span></p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // 将模态框添加到页面
+            document.body.appendChild(printModal);
+            
+            // 填充商品列表
+            const printItemsTable = document.getElementById('printItemsTable');
+            let totalAmount = 0;
+            
+            invoice.items.forEach(item => {
+                // 根据显示的数量计算金额（已分拣显示分拣数量，未分拣显示空白）
+                const displayQuantity = item.isLocked && item.sortingQuantity ? parseFloat(item.sortingQuantity) : 0;
+                const taxFreeAmount = Math.round((displayQuantity || 0) * (parseFloat(item.taxFreePrice) || 0) * 100) / 100;
+                const taxAmount = Math.round(taxFreeAmount * 0.03 * 100) / 100;
+                const amount = Math.round((taxFreeAmount + taxAmount) * 100) / 100;
+                
+                // 累加已分拣商品的价税合计到总计
+                if (item.isLocked && item.sortingQuantity) {
+                    totalAmount += amount;
+                }
+                
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td class="px-2 py-1 invoice-border">${item.name || ''}</td>
+                    <td class="px-2 py-1 invoice-border text-center">${item.unit || ''}</td>
+                    <td class="px-2 py-1 invoice-border text-center">${item.isLocked && item.sortingQuantity ? item.sortingQuantity : ''}</td>
+                    <td class="px-2 py-1 invoice-border text-center">${item.taxFreePrice || ''}</td>
+                    <td class="px-2 py-1 invoice-border text-center">${taxFreeAmount > 0 ? `${taxFreeAmount.toFixed(2)}` : ''}</td>
+                    <td class="px-2 py-1 invoice-border text-center">3%</td>
+                    <td class="px-2 py-1 invoice-border text-center">${taxAmount > 0 ? `${taxAmount.toFixed(2)}` : ''}</td>
+                    <td class="px-2 py-1 invoice-border text-right">${amount > 0 ? `${amount.toFixed(2)}` : ''}</td>
+                `;
+                printItemsTable.appendChild(row);
+            });
+            
+            // 更新总计显示
+            document.getElementById('printTotalAmount').textContent = totalAmount.toFixed(2);
+            
+            // 关闭已保存配送单列表模态框
+            const existingModal = document.querySelector('.fixed.inset-0.bg-black.bg-opacity-50:not(#printModal)');
+            if (existingModal && existingModal !== printModal) {
+                document.body.removeChild(existingModal);
+            }
+            
+            // 等待DOM更新后执行打印
+            setTimeout(() => {
+                // 执行打印
+                window.print();
+                
+                // 打印完成后移除打印模态框
+                document.body.removeChild(printModal);
+            }, 100);
+        }
+    </script>
+        <script>
+            // 切换设备管理模态框
+            function toggleDevicesModal() {
+                const modal = document.getElementById('devicesModal');
+                modal.classList.toggle('hidden');
+            }
+
+            // 测试同步
+            function testSync() {
+                if (syncManager) {
+                    syncManager.testSync();
+                } else {
+                    alert('同步管理器未初始化');
+                }
+            }
+
+            // 页面卸载时清理资源
+            window.addEventListener('beforeunload', function() {
+                if (syncManager) {
+                    syncManager.cleanup();
+                }
+            });
+        </script>
+        <script>
+            // 设置配送日期为明天
+            document.addEventListener('DOMContentLoaded', function() {
+                const tomorrow = new Date();
+                tomorrow.setDate(tomorrow.getDate() + 1);
+                const year = tomorrow.getFullYear();
+                const month = String(tomorrow.getMonth() + 1).padStart(2, '0');
+                const day = String(tomorrow.getDate()).padStart(2, '0');
+                const dateString = `${year}-${month}-${day}`;
+                document.getElementById('invoiceDate').value = dateString;
+            });
+            
+            // 显示商品管理界面
+            function showProductManagement() {
+                // 创建商品管理模态框
+                const modal = document.createElement('div');
+                modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
+                modal.innerHTML = `
+                    <div class="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 class="text-xl font-bold">管理预设商品</h3>
+                            <button type="button" id="closeProductManagementBtn" class="text-gray-500 hover:text-gray-700">
+                                <i class="fa fa-times text-xl"></i>
+                            </button>
+                        </div>
+                        
+                        <div class="mb-4">
+                            <div class="flex items-center gap-2 mb-2">
+                                <input type="text" id="newProductInput" class="form-input flex-1" placeholder="输入新商品名称">
+                                <button type="button" id="addProductBtn" class="btn btn-primary">添加商品</button>
+                            </div>
+                            <p class="text-sm text-gray-500">添加新的预设商品，将在创建配送单时可用</p>
+                        </div>
+                        
+                        <div class="mb-4">
+                            <h4 class="font-medium mb-2">当前预设商品列表</h4>
+                            <div id="productList" class="space-y-2 max-h-80 overflow-y-auto">
+                                <!-- 商品列表将在这里动态生成 -->
+                            </div>
+                        </div>
+                        
+                        <div class="flex justify-end gap-2">
+                            <button type="button" id="resetProductsBtn" class="btn btn-secondary">恢复默认</button>
+                            <button type="button" id="closeProductManagementBtn2" class="btn btn-primary">关闭</button>
+                        </div>
+                    </div>
+                `;
+                
+                document.body.appendChild(modal);
+                
+                // 渲染商品列表
+                renderProductList();
+                
+                // 添加新商品按钮事件
+                document.getElementById('addProductBtn').addEventListener('click', function() {
+                    const newProductInput = document.getElementById('newProductInput');
+                    const newProduct = newProductInput.value.trim();
+                    
+                    if (!newProduct) {
+                        alert('请输入商品名称');
+                        return;
+                    }
+                    
+                    if (presetProducts.includes(newProduct)) {
+                        alert('该商品已存在');
+                        return;
+                    }
+                    
+                    presetProducts.push(newProduct);
+                    savePresetProducts();
+                    renderProductList();
+                    newProductInput.value = '';
+                    
+                    // 显示成功提示
+                    const toast = document.createElement('div');
+                    toast.className = 'fixed top-4 right-4 bg-green-500 text-white px-4 py-2 rounded shadow-lg z-50';
+                    toast.textContent = '商品添加成功！';
+                    document.body.appendChild(toast);
+                    
+                    setTimeout(() => {
+                        document.body.removeChild(toast);
+                    }, 2000);
+                });
+                
+                // 回车键添加商品
+                document.getElementById('newProductInput').addEventListener('keypress', function(e) {
+                    if (e.key === 'Enter') {
+                        document.getElementById('addProductBtn').click();
+                    }
+                });
+                
+                // 恢复默认按钮事件
+                document.getElementById('resetProductsBtn').addEventListener('click', function() {
+                    if (confirm('确定要恢复默认商品列表吗？这将清除所有自定义添加的商品。')) {
+                        const defaultProducts = [
+                            '大白菜', '芹菜', '上海青', '杭椒', '青尖椒', '青瓜', '茄子', '西红柿', 
+                            '莲藕', '包菜', '花菜', '莴笋', '蒜苔', '冬瓜', '苦瓜', '胡萝卜', 
+                            '白萝卜', '土豆', '香菇', '菜葱', '洋葱', '长豆角', '清水笋丝', '清水笋片'
+                        ];
+                        
+                        presetProducts = defaultProducts;
+                        savePresetProducts();
+                        renderProductList();
+                    }
+                });
+                
+                // 关闭按钮事件
+                document.getElementById('closeProductManagementBtn').addEventListener('click', closeModal);
+                document.getElementById('closeProductManagementBtn2').addEventListener('click', closeModal);
+                
+                // 点击模态框外部关闭
+                modal.addEventListener('click', function(e) {
+                    if (e.target === modal) {
+                        closeModal();
+                    }
+                });
+                
+                function closeModal() {
+                    document.body.removeChild(modal);
+                }
+                
+                function renderProductList() {
+                    const productList = document.getElementById('productList');
+                    productList.innerHTML = '';
+                    
+                    if (presetProducts.length === 0) {
+                        productList.innerHTML = '<p class="text-gray-500 text-center py-4">暂无预设商品</p>';
+                        return;
+                    }
+                    
+                    // 按字母顺序排序
+                    const sortedProducts = [...presetProducts].sort();
+                    
+                    sortedProducts.forEach((product, index) => {
+                        const productItem = document.createElement('div');
+                        productItem.className = 'flex items-center justify-between bg-gray-50 px-3 py-2 rounded';
+                        productItem.innerHTML = `
+                            <span class="flex-1">${index + 1}. ${product}</span>
+                            <button type="button" class="delete-product-btn text-red-500 hover:text-red-700" data-product="${product}">
+                                <i class="fa fa-trash"></i>
+                            </button>
+                        `;
+                        productList.appendChild(productItem);
+                    });
+                    
+                    // 添加删除按钮事件
+                    productList.querySelectorAll('.delete-product-btn').forEach(btn => {
+                        btn.addEventListener('click', function() {
+                            const productToDelete = this.getAttribute('data-product');
+                            if (confirm(`确定要删除商品"${productToDelete}"吗？`)) {
+                                presetProducts = presetProducts.filter(p => p !== productToDelete);
+                                savePresetProducts();
+                                renderProductList();
+                            }
+                        });
+                    });
+                }
+            }
+            
+            // 删除已保存的配送单
+            function deleteSavedInvoice(invoiceId) {
+                if (confirm('确定要删除这个配送单吗？此操作不可撤销。')) {
+                    // 获取已保存的配送单
+                    let savedInvoices = JSON.parse(localStorage.getItem('savedInvoices') || '[]');
+                    
+                    // 删除指定ID的配送单
+                    savedInvoices = savedInvoices.filter(invoice => invoice.id !== invoiceId);
+                    
+                    // 更新保存的配送单
+                    localStorage.setItem('savedInvoices', JSON.stringify(savedInvoices));
+                    
+                    // 同步到其他设备
+                    if (syncManager) {
+                        syncManager.sendDataUpdate('invoices', savedInvoices);
+                    }
+                    
+                    // 实时更新列表显示
+                    const invoiceRow = event.target.closest('tr');
+                    if (invoiceRow) {
+                        invoiceRow.remove();
+                        
+                        // 检查是否还有其他行
+                        const tbody = invoiceRow.closest('tbody');
+                        if (tbody && tbody.children.length === 0) {
+                            // 如果没有其他行，显示空状态
+                            const emptyRow = document.createElement('tr');
+                            emptyRow.innerHTML = '<td colspan="7" class="px-4 py-2 text-center">暂无符合条件的配送单</td>';
+                            tbody.appendChild(emptyRow);
+                        }
+                    }
+                    
+                    alert('配送单已成功删除！');
+                }
+            }
+        </script>
+        <script>
+            // 切换设备管理模态框
+            function toggleDevicesModal() {
+                const modal = document.getElementById('devicesModal');
+                modal.classList.toggle('hidden');
+            }
+
+            // 测试同步
+            function testSync() {
+                if (syncManager) {
+                    syncManager.testSync();
+                } else {
+                    alert('同步管理器未初始化');
+                }
+            }
+
+            // 页面卸载时清理资源
+            window.addEventListener('beforeunload', function() {
+                if (syncManager) {
+                    syncManager.cleanup();
+                }
+            });
+        </script>
+    
+</body></html>
